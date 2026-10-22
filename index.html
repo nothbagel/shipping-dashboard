@@ -134,6 +134,9 @@ main{position:relative;min-height:0}
 .lg-line{display:inline-block;width:22px;border-top:2.5px solid var(--text-2)}
 .lg-line.dash{border-top-style:dashed;border-top-width:2px}
 .lg-glyph svg{width:14px;height:14px;fill:var(--text-2);vertical-align:-2px}
+.lg-pin svg{width:11px;height:14px;display:block}
+.site-pin{background:none;border:0}
+.site-pin svg{width:16px;height:21px;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
 
 /* Popup */
 .ship-pop .leaflet-popup-content-wrapper{background:var(--surface);color:var(--text);border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--border);padding:0}
@@ -794,10 +797,26 @@ const mq = matchMedia('(prefers-color-scheme: dark)');
 // Esri grey canvas basemap (no API key needed): base layer plus a place-name layer on top.
 const tileUrl = kind => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${mq.matches ? 'Dark' : 'Light'}_Gray_${kind}/MapServer/tile/{z}/{y}/{x}`;
 
+// A single world centred on Australia: the map runs from the mid-Atlantic (SEAM, 32°W - east of all of South America, west of
+// the Azores, Cape Verde, Iceland and Africa) east round to the mid-Atlantic again, so Australia sits near the middle and the
+// whole of the Americas is on the right. Panning stops at the edges, and zooming out stops once the world fills the map.
+// Tiles wrap, but the bounds only ever show one copy. Antarctica is cropped off: the south edge (SOUTH, 59.3°S) is halfway
+// between New Zealand's southern tip (Stewart Island, ~47.3°S) and the Antarctic coast below it (Cape Adare, ~71.3°S).
+// The far north is cropped too (NORTH, 77.7°N - the top of the view the user marked): keeps the Russian mainland, Alaska,
+// Canada and Iceland; drops the Arctic islands and northern Greenland.
+const SEAM = -32, SOUTH = -59.3, NORTH = 77.7, AU_CENTRE = [-25, 134];
 if (window.L){
-  map = L.map('map', {worldCopyJump:true, minZoom:2, maxZoom:16, zoomControl:true}).setView([-10, 140], 3);
-  const base = L.tileLayer(tileUrl('Base'), {maxZoom:16, attribution:'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'}).addTo(map);
-  const labels = L.tileLayer(tileUrl('Reference'), {maxZoom:16}).addTo(map);
+  const world = L.latLngBounds([[SOUTH, SEAM], [NORTH, SEAM + 360]]);
+  map = L.map('map', {minZoom:1, maxZoom:16, zoomSnap:0.25, zoomControl:true, maxBounds:world, maxBoundsViscosity:1}).setView(AU_CENTRE, 3);
+  const tileOpts = {maxZoom:16};
+  const base = L.tileLayer(tileUrl('Base'), {...tileOpts, attribution:'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'}).addTo(map);
+  const labels = L.tileLayer(tileUrl('Reference'), tileOpts).addTo(map);
+  // Zoom-out limit: the world must fill the map's width and the cropped band (SOUTH..NORTH, as a share of the square
+  // Mercator world) its height, so nothing outside the map - e.g. Antarctica - ever shows.
+  const mercY = lat => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
+  const bandShare = (mercY(NORTH) - mercY(SOUTH)) / (2 * Math.PI);
+  const fillWorld = () => { const s = map.getSize(); map.setMinZoom(Math.max(1, Math.ceil(Math.log2(Math.max(s.x / 256, s.y / (256 * bandShare))) * 4) / 4)); };
+  fillWorld(); map.on('resize', fillWorld);
   mq.addEventListener('change', () => { base.setUrl(tileUrl('Base')); labels.setUrl(tileUrl('Reference')); });
   layer = L.layerGroup().addTo(map);
   map.on('click', () => { if (!ui.detail) select(null); });
@@ -805,6 +824,73 @@ if (window.L){
 } else document.getElementById('mapMsg').hidden = false;
 
 function sidebarWidth(){ const el = document.getElementById('sidebar'); return ui.open ? el.offsetWidth + 12 : 60; }
+
+// Longitude into the map's range [SEAM, SEAM + 360).
+const wrapLng = lng => lng >= SEAM && lng < SEAM + 360 ? lng : ((lng - SEAM) % 360 + 360) % 360 + SEAM;
+// Routes are kept continuous for maths; for drawing on the single world, split them where they cross the map's edge (the seam).
+function onWorld(pts){
+  const parts = [[]];
+  pts.forEach((p, i) => {
+    if (i){
+      const q = pts[i - 1], a = Math.floor((q[1] - SEAM) / 360), b = Math.floor((p[1] - SEAM) / 360);
+      if (a !== b){
+        const edge = Math.max(a, b) * 360 + SEAM, t = (edge - q[1]) / (p[1] - q[1]), lat = q[0] + (p[0] - q[0]) * t, east = p[1] > q[1];
+        parts[parts.length - 1].push([lat, east ? SEAM + 360 : SEAM]);
+        parts.push([[lat, east ? SEAM : SEAM + 360]]);
+      }
+    }
+    parts[parts.length - 1].push([p[0], wrapLng(p[1])]);
+  });
+  return parts;
+}
+
+// ---------- Interroll sites (yellow pins) ----------
+// Operational sites - headquarters, production, innovation, sales - from Interroll's Annual Report 2025, financial report
+// note 7.4 "Scope of consolidation". Finance-only holdings (Wilmington DE, Emmeloord) and the dormant Corby entity are left out.
+// Positions are city-level. [city, country, lat, lng, role]
+const INTERROLL_SITES = [
+  ["Sant'Antonino", 'Switzerland', 46.153, 8.979, 'Global headquarters · production & innovation'],
+  ['Wermelskirchen', 'Germany', 51.139, 7.215, 'Production & innovation (rollers, RollerDrive) · sales'],
+  ['Sinsheim', 'Germany', 49.252, 8.879, 'Production & innovation (automation)'],
+  ['Obrigheim (Mosbach)', 'Germany', 49.352, 9.093, 'Production & innovation (conveyors)'],
+  ['Baal / Hückelhoven', 'Germany', 51.037, 6.275, 'Production & innovation (drum motors)'],
+  ['La Roche-sur-Yon', 'France', 46.670, -1.426, 'Production & innovation (dynamic storage)'],
+  ['Saint-Pol-de-Léon', 'France', 48.685, -3.985, 'Sales'],
+  ['Hvidovre (Copenhagen)', 'Denmark', 55.642, 12.473, 'Production & innovation · sales'],
+  ['Kettering', 'United Kingdom', 52.398, -0.726, 'Sales'],
+  ['Rho / Cornaredo (Milan)', 'Italy', 45.510, 9.030, 'Sales'],
+  ['Cerdanyola del Vallès (Barcelona)', 'Spain', 41.491, 2.141, 'Sales'],
+  ['Linz', 'Austria', 48.306, 14.286, 'Production & innovation (software & electronics)'],
+  ['Břeclav', 'Czech Republic', 48.759, 16.882, 'Sales'],
+  ['Valkenswaard', 'Netherlands', 51.351, 5.459, 'Innovation (Sortteq sorters)'],
+  ['Warsaw', 'Poland', 52.230, 21.012, 'Sales'],
+  ['Istanbul', 'Türkiye', 41.008, 28.978, 'Sales'],
+  ['Johannesburg', 'South Africa', -26.204, 28.047, 'Production · sales'],
+  ['Wilmington, NC', 'USA', 34.226, -77.945, 'Production · sales'],
+  ['Cañon City, CO', 'USA', 38.441, -105.242, 'Production & innovation (belt curves, spirals)'],
+  ['Hiram (Atlanta), GA', 'USA', 33.876, -84.762, 'Production (dynamic storage)'],
+  ['Newmarket, ON', 'Canada', 44.059, -79.461, 'Production · sales'],
+  ['Querétaro', 'Mexico', 20.588, -100.389, 'Sales'],
+  ['Jaguariúna (São Paulo)', 'Brazil', -22.706, -46.986, 'Production · sales'],
+  ['Singapore', 'Singapore', 1.352, 103.820, 'Sales (Asia-Pacific hub)'],
+  ['Suzhou', 'China', 31.299, 120.585, 'Production & innovation'],
+  ['Shanghai', 'China', 31.230, 121.474, 'Sales'],
+  ['Shenzhen', 'China', 22.543, 114.058, 'Production (belt curves, spirals)'],
+  ['Phan Thong (Chonburi)', 'Thailand', 13.465, 101.090, 'Production · sales'],
+  ['Bangalore', 'India', 12.972, 77.594, 'Interroll India (joined 2024)'],
+  ['Tokyo', 'Japan', 35.676, 139.650, 'Sales'],
+  ['Seoul', 'South Korea', 37.566, 126.978, 'Sales'],
+  ['Epping, VIC', 'Australia', -37.649, 145.016, 'Sales (Interroll Australia)'],
+];
+const PIN_SVG = '<svg viewBox="0 0 24 32" aria-hidden="true"><path d="M12 1.5C6.5 1.5 2.2 5.8 2.2 11.2c0 7.3 9.8 19.3 9.8 19.3s9.8-12 9.8-19.3C21.8 5.8 17.5 1.5 12 1.5z" fill="#ffcc00" stroke="#1d1d1b" stroke-width="2"/><circle cx="12" cy="11.2" r="3.8" fill="#1d1d1b"/></svg>';
+if (map){
+  const pin = L.divIcon({className:'site-pin', html:PIN_SVG, iconSize:[16, 21], iconAnchor:[8, 21], tooltipAnchor:[0, -19]});
+  const sites = L.layerGroup().addTo(map);
+  for (const [city, country, lat, lng, role] of INTERROLL_SITES)
+    L.marker([lat, wrapLng(lng)], {icon:pin, zIndexOffset:-1000, keyboard:false}) // below the shipment markers
+      .bindTooltip(`<b>Interroll</b> · ${esc(city)}, ${esc(country)}<br><span class="muted">${esc(role)}</span>`, {direction:'top'})
+      .addTo(sites);
+}
 
 function renderMap(list){
   if (!map) return;
@@ -821,29 +907,32 @@ function renderMap(list){
     if (d.stage === 'transit' && d.split){
       const done = d.route.slice(0, d.split.idx + 1).concat([d.split.pt]);
       const rest = [d.split.pt].concat(d.route.slice(d.split.idx + 1));
-      parts.push(L.polyline(done, {className:cls + ' solid', interactive:false}), L.polyline(rest, {className:cls + ' dash', interactive:false}));
-    } else parts.push(L.polyline(d.route, {className:cls + (d.stage === 'arrived' || d.stage === 'delivered' ? ' solid' : ' dash'), interactive:false}));
+      parts.push(L.polyline(onWorld(done), {className:cls + ' solid', interactive:false}), L.polyline(onWorld(rest), {className:cls + ' dash', interactive:false}));
+    } else parts.push(L.polyline(onWorld(d.route), {className:cls + (d.stage === 'arrived' || d.stage === 'delivered' ? ' solid' : ' dash'), interactive:false}));
     parts.forEach(p => p.addTo(layer));
     routes[d.key] = parts;
-    bounds.push(...d.route);
+    bounds.push(...onWorld(d.route).flat());
   }
 
   const ports = {};
   for (const d of active) for (const p of [d.pol, d.pod]) if (p && !p.unknown) ports[p.code] = p;
   for (const p of Object.values(ports)){
-    L.circleMarker([p.lat, p.lng], {radius:4, className:'port'}).bindTooltip(`${esc(p.code)} · ${esc(p.name)}${p.approx ? ' (approx.)' : ''}`, {direction:'top'}).addTo(layer);
+    L.circleMarker([p.lat, wrapLng(p.lng)], {radius:4, className:'port'}).bindTooltip(`${esc(p.code)} · ${esc(p.name)}${p.approx ? ' (approx.)' : ''}`, {direction:'top'}).addTo(layer);
   }
 
   // Shipments sharing a spot fan out around it.
   const spots = {};
-  for (const d of active) if (d.pos) (spots[d.pos[0].toFixed(3) + ',' + d.pos[1].toFixed(3)] ||= []).push(d);
+  for (const d of active) if (d.pos){
+    const at = [d.pos[0], wrapLng(d.pos[1])];
+    (spots[at[0].toFixed(3) + ',' + at[1].toFixed(3)] ||= []).push({d, at});
+  }
   for (const group of Object.values(spots)){
-    group.forEach((d, i) => {
+    group.forEach(({d, at}, i) => {
       const n = group.length, r = n > 1 ? 17 : 0, ang = -Math.PI/2 + i * 2*Math.PI/n;
       const dx = r*Math.cos(ang), dy = r*Math.sin(ang);
       const icon = L.divIcon({className:'mk-wrap', iconSize:[28,28], iconAnchor:[14 - dx, 14 - dy], popupAnchor:[dx, dy - 16],
         html:`<div class="mk st-${d.stage}${d.posKind && d.posKind.startsWith('est') ? ' est' : ''}${ui.selected === d.key ? ' sel' : ''}${d.delayDays > 0 ? ' delayed' : ''}">${glyph(d)}</div>`});
-      const m = L.marker(d.pos, {icon, keyboard:true, title:d.key, riseOnHover:true}).addTo(layer);
+      const m = L.marker(at, {icon, keyboard:true, title:d.key, riseOnHover:true}).addTo(layer);
       m.bindTooltip(`<b>${esc(d.key)}</b> · ${esc(d.projectName)} · ${STAGES[d.stage].label}${d.delayDays > 0 ? ` · <span class="late">Delayed +${plural(d.delayDays, 'day')}</span>` : ''}`,
         {direction:'top', offset:[dx, dy - 14]});
       m.bindPopup(() => popupHtml(d), {className:'ship-pop', closeButton:false, maxWidth:320, minWidth:290,
@@ -851,13 +940,15 @@ function renderMap(list){
       m.getPopup()._fla = d.key;
       m.on('click', () => select(d.key));
       markers[d.key] = m;
-      bounds.push(d.pos);
+      bounds.push(at);
     });
   }
   applySelection();
 
   if (!ui.fitted && bounds.length){
-    map.fitBounds(L.latLngBounds(bounds), {paddingTopLeft:[40,40], paddingBottomRight:[sidebarWidth() + 30, 40], maxZoom:5});
+    // Australia in the middle, zoomed so every shipment fits around it (mirror each point through the centre).
+    const around = bounds.flatMap(([la, ln]) => [[la, ln], [Math.max(SOUTH, Math.min(NORTH, 2 * AU_CENTRE[0] - la)), 2 * AU_CENTRE[1] - ln]]);
+    map.setView(AU_CENTRE, Math.min(5, map.getBoundsZoom(L.latLngBounds(around), false, L.point(80, 80))));
     ui.fitted = true;
   }
 }
@@ -1070,7 +1161,8 @@ function renderLegend(list){
      <div class="lg-sep"></div>
      <div class="lg-row"><span class="lg-glyph">${ICON.sea}</span>Sea <span class="lg-glyph" style="margin-left:8px">${ICON.air}</span>Air</div>
      <div class="lg-row"><span class="lg-line"></span>travelled <span class="lg-line dash" style="margin-left:6px"></span>planned</div>
-     <div class="lg-row"><span class="lg-dot st-transit" style="outline:1.5px dashed var(--c);outline-offset:2px"></span>estimated position</div>`;
+     <div class="lg-row"><span class="lg-dot st-transit" style="outline:1.5px dashed var(--c);outline-offset:2px"></span>estimated position</div>
+     <div class="lg-row"><span class="lg-pin">${PIN_SVG}</span>Interroll site</div>`;
 }
 
 function render(){
@@ -1372,7 +1464,7 @@ addEventListener('drop', e => { if (!hasFiles(e)) return; e.preventDefault(); dr
 // Re-draw every 10 minutes so in-transit positions keep moving (skipped while a pop-out is open).
 setInterval(() => { if (!map || !map._popup || !map.hasLayer(map._popup)) render(); }, 10 * 60 * 1000);
 
-window.ShippingDashboard = {importFile, render, syncCloud, state: () => state}; // for troubleshooting from the console
+window.ShippingDashboard = {importFile, render, syncCloud, state: () => state, map: () => map}; // for troubleshooting from the console
 render();
 })();
 </script>
