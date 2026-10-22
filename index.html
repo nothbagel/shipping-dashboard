@@ -201,6 +201,16 @@ main{position:relative;min-height:0}
 .d-head .sub{color:var(--text-2);font-size:12.5px}
 .callout{display:flex;gap:8px;align-items:center;border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin:8px 0;font-size:13px;background:var(--surface-2)}
 .callout.warn{border-color:color-mix(in srgb,var(--warning) 60%,transparent);background:color-mix(in srgb,var(--warning) 12%,var(--surface))}
+/* Delays: original date crossed out, new date in red */
+.callout.delay{border-color:color-mix(in srgb,var(--critical) 55%,transparent);background:color-mix(in srgb,var(--critical) 9%,var(--surface))}
+.callout .bang{flex:none;width:20px;height:20px;border-radius:50%;background:var(--critical);color:#fff;display:grid;place-items:center;font-weight:700;font-size:12px}
+.was{color:var(--muted);text-decoration:line-through;margin-right:5px;font-weight:400}
+.late{color:var(--critical);font-weight:650}
+.chip.delay{background:color-mix(in srgb,var(--critical) 14%,var(--surface-2))}
+.chip.delay:before{background:var(--critical)}
+.mk.delayed{box-shadow:0 0 0 2px var(--surface),0 0 0 4.5px var(--critical),0 1px 5px rgba(0,0,0,.4)}
+.row.delayed{box-shadow:inset 3px 0 0 var(--critical)}
+.lg-ring{width:11px;height:11px;border-radius:50%;flex:none;background:var(--surface);box-shadow:0 0 0 2px var(--critical)}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px}
 .card{border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin:10px 0}
 .card h3{margin:0 0 6px;font-size:13px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
@@ -568,6 +578,29 @@ function save(){
 // ---------- Derivation ----------
 function tracking(){ return (window.VESSEL_TRACKING && window.VESSEL_TRACKING.vessels) || {}; }
 
+// ---------- Delays: dates moved by a later supplier file ----------
+// For ETD, ETA and site expected date: first real date seen in the import history vs the current one.
+const DELAY_FIELDS = ['etd', 'eta', 'siteExpected'];
+function dateChanges(s){
+  const out = {};
+  for (const key of DELAY_FIELDS){
+    const seq = [];
+    for (const h of s.history || []) for (const c of h.changes || [])
+      if (c.label === COL[key].label){ if (!seq.length) seq.push(c.from); seq.push(c.to); }
+    const first = seq.find(isISO), current = s.fields[key];
+    if (!first || !isISO(current) || first === current) continue; // e.g. "TBA" -> a date is not a delay
+    out[key] = {from:first, to:current, days:Math.round((isoMs(current) - isoMs(first)) / 86400000)};
+  }
+  return out;
+}
+// A date with its change: original crossed out, then the current date (red when later).
+function dateHtml(d, key, short){
+  const fmt = short ? fmtShort : fmtDate, c = d.dates && d.dates[key];
+  if (!c) return esc(fmt(d.f[key]));
+  return `<span class="was" title="Originally ${esc(fmtDate(c.from))}">${esc(fmt(c.from))}</span>`
+    + `<span class="${c.days > 0 ? 'late' : ''}" title="${c.days > 0 ? '+' : ''}${plural(c.days, 'day')}">${esc(fmt(c.to))}</span>`;
+}
+
 function derive(s){
   const f = s.fields;
   const mode = /AIR/i.test(f.method || '') ? 'air' : 'sea';
@@ -617,8 +650,9 @@ function derive(s){
     else { pos = route[0]; posKind = 'pol'; }
   } else if (pol && !pol.unknown){ pos = [pol.lat, pol.lng]; posKind = 'pol'; }
 
+  const dates = dateChanges(s), delayDays = Math.max(0, ...Object.values(dates).map(c => c.days));
   return {s, key:s.key, f, mode, pol, pod, vehicle, vessel, dep, arr, timeSrc, stage, progress, route, routeKind, pos, posKind, split,
-    projectNo:projectNo(s), projectName:f.project || '', unconfirmed: !/^Y/i.test(String(f.bookingConfirmed || '').trim())};
+    projectNo:projectNo(s), projectName:f.project || '', unconfirmed: !/^Y/i.test(String(f.bookingConfirmed || '').trim()), dates, delayDays};
 }
 
 // ---------- Import ----------
@@ -808,9 +842,10 @@ function renderMap(list){
       const n = group.length, r = n > 1 ? 17 : 0, ang = -Math.PI/2 + i * 2*Math.PI/n;
       const dx = r*Math.cos(ang), dy = r*Math.sin(ang);
       const icon = L.divIcon({className:'mk-wrap', iconSize:[28,28], iconAnchor:[14 - dx, 14 - dy], popupAnchor:[dx, dy - 16],
-        html:`<div class="mk st-${d.stage}${d.posKind && d.posKind.startsWith('est') ? ' est' : ''}${ui.selected === d.key ? ' sel' : ''}">${glyph(d)}</div>`});
+        html:`<div class="mk st-${d.stage}${d.posKind && d.posKind.startsWith('est') ? ' est' : ''}${ui.selected === d.key ? ' sel' : ''}${d.delayDays > 0 ? ' delayed' : ''}">${glyph(d)}</div>`});
       const m = L.marker(d.pos, {icon, keyboard:true, title:d.key, riseOnHover:true}).addTo(layer);
-      m.bindTooltip(`<b>${esc(d.key)}</b> · ${esc(d.projectName)} · ${STAGES[d.stage].label}`, {direction:'top', offset:[dx, dy - 14]});
+      m.bindTooltip(`<b>${esc(d.key)}</b> · ${esc(d.projectName)} · ${STAGES[d.stage].label}${d.delayDays > 0 ? ` · <span class="late">Delayed +${plural(d.delayDays, 'day')}</span>` : ''}`,
+        {direction:'top', offset:[dx, dy - 14]});
       m.bindPopup(() => popupHtml(d), {className:'ship-pop', closeButton:false, maxWidth:320, minWidth:290,
         autoPanPaddingTopLeft:[16,16], autoPanPaddingBottomRight:[Math.min(sidebarWidth() + 16, innerWidth * 0.45), 16]});
       m.getPopup()._fla = d.key;
@@ -869,11 +904,12 @@ function popupHtml(d){
       <button class="x" data-action="close-popup" aria-label="Close">×</button>
     </div>
     <span class="chip st-${d.stage}">${STAGES[d.stage].label}</span>
+    ${d.delayDays > 0 ? `<span class="chip delay">Delayed +${plural(d.delayDays, 'day')}</span>` : ''}
     ${legHtml(d)}
     <dl class="kv">
       <dt>${d.mode === 'air' ? 'Flight' : 'Vessel'}</dt><dd>${esc(d.vehicle || 'TBA')}${f.carrier && !blank(f.carrier) ? ' · ' + esc(f.carrier) : ''}</dd>
       <dt>Mode</dt><dd>${d.mode === 'air' ? 'Air' : 'Sea'}${f.volume && !blank(f.volume) ? ' · ' + esc(f.volume) : ''}</dd>
-      <dt>Site expected</dt><dd>${esc(fmtDate(f.siteExpected))}</dd>
+      <dt>Site expected</dt><dd>${dateHtml(d, 'siteExpected')}</dd>
       ${etaLine ? `<dt>Arrival</dt><dd>${etaLine}</dd>` : ''}
     </dl>
     ${note ? `<p class="note">${note}</p>` : ''}
@@ -887,7 +923,7 @@ function legHtml(d){
   return `<div style="margin-top:10px">
     <div class="leg"><span><span class="code">${esc(f.pol || '?')}</span> ${name(d.pol)}</span><span><span class="code">${esc(f.pod || '?')}</span> ${name(d.pod)}</span></div>
     <div class="track st-${d.stage}" title="${pct}% of scheduled transit time elapsed"><i style="width:${pct}%"></i></div>
-    <div class="leg muted"><span>ETD ${esc(fmtShort(f.etd))}</span><span>ETA ${esc(fmtShort(f.eta))}</span></div>
+    <div class="leg muted"><span>ETD ${dateHtml(d, 'etd', true)}</span><span>ETA ${dateHtml(d, 'eta', true)}</span></div>
   </div>`;
 }
 
@@ -918,8 +954,9 @@ function groupsOf(list){
 function rowHtml(d){
   const sub = [`${esc(d.f.pol || '?')} → ${esc(d.f.pod || '?')}`, esc(d.vehicle || (d.mode === 'air' ? 'Air · flight TBA' : 'Vessel TBA'))].join(' · ');
   const side = d.s.archived ? `<span>Archived ${esc(fmtShort((d.s.archivedAt || '').slice(0,10)))}</span>` :
-    `<span class="chip st-${d.stage}">${STAGES[d.stage].label}</span><span>ETA ${esc(fmtShort(d.f.eta))}</span>`;
-  return `<button class="row${ui.selected === d.key ? ' sel' : ''}" data-action="detail" data-fla="${esc(d.key)}">
+    `<span class="chip st-${d.stage}">${STAGES[d.stage].label}</span><span>ETA ${dateHtml(d, 'eta', true)}</span>`;
+  return `<button class="row${ui.selected === d.key ? ' sel' : ''}${d.delayDays > 0 && !d.s.archived ? ' delayed' : ''}" data-action="detail" data-fla="${esc(d.key)}"
+    ${d.delayDays > 0 ? `title="Delayed +${plural(d.delayDays, 'day')}"` : ''}>
     <span class="mk st-${d.stage}">${glyph(d)}</span>
     <span class="row-main"><span class="row-title">${esc(d.key)}${d.unconfirmed && !d.s.archived ? ' <span class="qbox" title="Booking not confirmed yet">?</span>' : ''}</span>
       <span class="row-sub">${sub}</span></span>
@@ -962,7 +999,7 @@ function renderDetail(d){
       `<p class="muted" style="margin:0 0 6px">This vessel isn't in tracking.js yet. Ask Claude to add it (it needs the vessel's MMSI).</p>${links}`}</section>`;
   }
 
-  const dl = COLUMNS.map(c => `<dt>${esc(c.label)}</dt><dd>${esc(c.type === 'date' ? fmtDate(f[c.key]) : (f[c.key] || '—'))}</dd>`).join('')
+  const dl = COLUMNS.map(c => `<dt>${esc(c.label)}</dt><dd>${c.type === 'date' ? dateHtml(d, c.key) : esc(f[c.key] || '—')}</dd>`).join('')
     + Object.entries(s.extra || {}).map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('');
 
   const locNotes = [d.pol, d.pod].filter(p => p && (p.approx || p.unknown)).map(p => p.unknown
@@ -979,6 +1016,8 @@ function renderDetail(d){
       <div style="flex:1;min-width:0"><h2>${esc(d.key)}</h2><div class="sub">${esc(d.projectName)} · ${esc(d.projectNo)}${f.poRef && f.poRef !== d.projectNo ? ' · PO ' + esc(f.poRef) : ''}</div></div>
       <span class="chip st-${d.stage}">${STAGES[d.stage].label}</span></div>
     ${d.unconfirmed && !s.archived ? '<div class="callout warn"><span class="qbox">?</span>Booking not confirmed yet.</div>' : ''}
+    ${d.delayDays > 0 ? `<div class="callout delay"><span class="bang">!</span><span>Delayed by ${plural(d.delayDays, 'day')}: ${
+      Object.entries(d.dates).filter(([, c]) => c.days > 0).map(([k, c]) => `${esc(COL[k].label)} ${esc(fmtDate(c.from))} → ${esc(fmtDate(c.to))} (+${plural(c.days, 'day')})`).join('; ')}</span></div>` : ''}
     ${s.archived ? `<div class="callout">Archived ${fmtStamp(s.archivedAt)}. Hidden from the map.</div>` : ''}
     ${d.stage === 'delivered' && !s.archived ? '<div class="callout">Delivered to site. Review it and archive when complete.</div>' : ''}
     ${locNotes.map(n => `<div class="callout warn">${n}</div>`).join('')}
@@ -1027,7 +1066,8 @@ function renderLegend(list){
   const rows = [['unbooked',['unbooked']],['pending',['pending']],['transit',['transit']],['arrived',['arrived','delivered']]];
   document.getElementById('legend').innerHTML = rows.map(([st, inc]) =>
     `<div class="lg-row"><span class="lg-dot st-${st}"></span>${st === 'arrived' ? 'At destination / delivered' : STAGES[st].label}<b>${count(inc)}</b></div>`).join('') +
-    `<div class="lg-sep"></div>
+    `<div class="lg-row"><span class="lg-ring"></span>Delayed (date pushed back)<b>${active.filter(d => d.delayDays > 0).length}</b></div>
+     <div class="lg-sep"></div>
      <div class="lg-row"><span class="lg-glyph">${ICON.sea}</span>Sea <span class="lg-glyph" style="margin-left:8px">${ICON.air}</span>Air</div>
      <div class="lg-row"><span class="lg-line"></span>travelled <span class="lg-line dash" style="margin-left:6px"></span>planned</div>
      <div class="lg-row"><span class="lg-dot st-transit" style="outline:1.5px dashed var(--c);outline-offset:2px"></span>estimated position</div>`;
