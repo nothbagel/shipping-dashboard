@@ -1,0 +1,1284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="robots" content="noindex">
+<script>window.TEAM_VIEW = true;</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shipping Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='12' fill='%232a78d6'/%3E%3Cpath fill='%23fff' transform='translate(2.4 2.4) scale(.8)' d='M3.5 14.5h17l-2.3 4.6a1.6 1.6 0 0 1-1.4.9H7.2a1.6 1.6 0 0 1-1.4-.9zM6 13V9.2c0-.6.5-1.2 1.2-1.2H11V4.5h3V8h2.8c.7 0 1.2.6 1.2 1.2V13z'/%3E%3C/svg%3E">
+<!-- Libraries load from public CDNs. The supplier file is read inside the browser and never uploaded. -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+<style>
+:root{
+  color-scheme: light;
+  --page:#f9f9f7; --surface:#fcfcfb; --surface-2:#f0efec; --text:#0b0b0b; --text-2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10); --shadow:0 6px 24px rgba(0,0,0,.14);
+  --st-unbooked:#898781; --st-pending:#2a78d6; --st-transit:#eb6834; --st-arrived:#1baf7a;
+  --warning:#fab219; --critical:#d03b3b; --accent:#2a78d6; --accent-ink:#fff;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --surface-2:#262624; --text:#f0efec; --text-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10); --shadow:0 6px 24px rgba(0,0,0,.55);
+    --st-pending:#3987e5; --st-transit:#d95926; --st-arrived:#199e70; --accent:#3987e5;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--page);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;display:grid;grid-template-rows:auto 1fr;overflow:hidden}
+button{font:inherit;color:inherit}
+[hidden]{display:none!important}
+.muted{color:var(--muted)}
+
+/* Top bar */
+.top{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);position:relative;z-index:1100}
+.top h1{font-size:16px;margin:0;font-weight:650;white-space:nowrap}
+.top .meta{color:var(--text-2);font-size:12.5px;flex:1;min-width:220px}
+.top .meta b{color:var(--text);font-weight:600}
+.ais-status{color:var(--text-2);font-size:12.5px;max-width:340px}
+.ais-status:empty{display:none}
+
+/* Team view (published, read-only) and the password screen */
+.team-view [data-edit]{display:none!important}
+.gate-overlay{position:absolute;inset:0;display:grid;place-items:center;z-index:1100;background:color-mix(in srgb,var(--page) 72%,transparent);backdrop-filter:blur(3px)}
+.gate-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);padding:20px 22px;width:min(340px,calc(100% - 32px));text-align:center}
+.gate-card h2{margin:0 0 4px;font-size:17px}
+.gate-card p{margin:0;color:var(--text-2);font-size:13px}
+.pw-input{display:block;width:100%;font:inherit;padding:8px 10px;margin-top:12px;border:1px solid var(--border);border-radius:8px;background:var(--page);color:var(--text)}
+.check-row{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--text-2);margin:8px 0 0}
+.gate-card .check-row{justify-content:center}
+.gate-error{color:var(--critical)!important;min-height:1.5em;font-size:12.5px!important;margin:6px 0!important}
+
+/* Refresh overlay: cartoon boat on the waves (with the odd rogue wave) */
+.boat-overlay{position:absolute;inset:0;display:grid;place-items:center;z-index:1050;pointer-events:none}
+.boat-card{pointer-events:auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);
+  padding:16px 18px 14px;width:min(340px,calc(100% - 32px));text-align:center}
+.boat-card h2{margin:12px 0 2px;font-size:15px;font-weight:650}
+.boat-card p{margin:0;color:var(--text-2);font-size:12.5px;min-height:2.9em}
+.boat-actions{display:flex;justify-content:center;gap:8px;margin-top:10px}
+.boat-scene{--sky:#e6f0fc;--sea3:#9ec5f4;--sea2:#5598e7;--sea1:#2a78d6;--rogue:#1c5cab;--foam:#fff;--cloud:#fff;--ink:#1f2a44;
+  display:block;width:100%;height:auto;border-radius:10px;background:var(--sky);overflow:hidden}
+@media (prefers-color-scheme: dark){ .boat-scene{--sky:#14243a;--sea3:#184f95;--sea2:#256abf;--sea1:#3987e5;--rogue:#104281;--foam:#e8f1fc;--cloud:#2c3a50;--ink:#a9c1de} }
+.boat-scene *{transform-box:fill-box}
+.boat-scene .wave{transform-box:view-box}
+.boat-scene .w3{fill:var(--sea3);animation:waveRoll 7s linear infinite}
+.boat-scene .w2{fill:var(--sea2);animation:waveRoll 5s linear infinite}
+.boat-scene .w1{fill:var(--sea1);animation:waveRoll 3.6s linear infinite}
+@keyframes waveRoll{to{transform:translateX(-60px)}}
+.boat-scene .cloud{fill:var(--cloud);animation:cloudDrift 38s linear infinite}
+@keyframes cloudDrift{to{transform:translateX(-340px)}}
+.boat-scene .ink{stroke:var(--ink);stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+.boat-scene .boat-bob{transform-origin:50% 85%;animation:bob 2.6s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-5px) rotate(3deg)}}
+.boat-scene .puff{fill:#fff;stroke:#c3c2b7;stroke-width:1;transform-origin:50% 50%;opacity:0;animation:puff 2.4s ease-out infinite}
+.boat-scene .puff:nth-of-type(2){animation-delay:.8s} .boat-scene .puff:nth-of-type(3){animation-delay:1.6s}
+@keyframes puff{0%{opacity:.9;transform:translate(0,0) scale(.5)}100%{opacity:0;transform:translate(-8px,-20px) scale(1.4)}}
+.boat-scene .rogue-wave{fill:var(--rogue)}
+.boat-scene .rogue-wave .foam{fill:var(--foam)}
+.boat-scene .boat-ride{transform-origin:50% 90%}
+.boat-scene .splash circle{fill:var(--foam);stroke:var(--sea1);stroke-width:1;opacity:0}
+.sea.rogue .rogue-wave{animation:rogueRun 3s linear forwards}
+.sea.rogue .boat-ride{animation:rideRogue 3s ease-in-out}
+.sea.rogue .splash circle{animation:splash 3s ease-out}
+@keyframes rogueRun{to{transform:translateX(-520px)}}
+@keyframes rideRogue{0%,20%{transform:none}36%{transform:translateY(-30px) rotate(-26deg)}50%{transform:translateY(-6px) rotate(16deg)}64%{transform:translateY(2px) rotate(-8deg)}80%{transform:translateY(-1px) rotate(3deg)}100%{transform:none}}
+@keyframes splash{0%,46%{opacity:0;transform:translate(0,0)}52%{opacity:1}100%{opacity:0;transform:translate(var(--dx),var(--dy))}}
+@media (prefers-reduced-motion: reduce){ .boat-scene *{animation:none!important} }
+.btn{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.btn.primary:hover{filter:brightness(1.08);background:var(--accent)}
+.btn.small{padding:3px 9px;font-size:12.5px;border-radius:6px}
+.banner{background:color-mix(in srgb,var(--warning) 22%,var(--surface));border-bottom:1px solid var(--border);padding:6px 16px;font-size:13px}
+
+/* Map */
+main{position:relative;min-height:0}
+#map{position:absolute;inset:0}
+.leaflet-container{font:inherit;background:var(--surface-2)}
+.leaflet-bar a,.leaflet-bar a:hover{background:var(--surface);color:var(--text);border-color:var(--border)}
+.leaflet-control-attribution{background:color-mix(in srgb,var(--surface) 85%,transparent)!important;color:var(--muted)}
+.leaflet-control-attribution a{color:var(--text-2)}
+.leaflet-tooltip{background:var(--surface);color:var(--text);border:1px solid var(--border);box-shadow:var(--shadow);font-size:12.5px}
+.leaflet-tooltip-top:before{border-top-color:var(--surface)}
+.map-msg{position:absolute;inset:0;display:grid;place-items:center;color:var(--text-2);z-index:500;pointer-events:none}
+
+.route{fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;transition:opacity .2s}
+.route.dash{stroke-dasharray:3 6;opacity:.85}
+.route.solid{stroke-width:2.5}
+.route.st-unbooked{stroke:var(--st-unbooked)} .route.st-pending{stroke:var(--st-pending)}
+.route.st-transit{stroke:var(--st-transit)} .route.st-arrived,.route.st-delivered{stroke:var(--st-arrived);opacity:.6}
+.has-sel .route{opacity:.18} .has-sel .route.sel{opacity:1;stroke-width:3.5}
+.port{fill:var(--surface);fill-opacity:1;stroke:var(--text-2);stroke-width:1.5}
+
+.st-unbooked{--c:var(--st-unbooked)} .st-pending{--c:var(--st-pending)} .st-transit{--c:var(--st-transit)}
+.st-arrived,.st-delivered{--c:var(--st-arrived)}
+.mk-wrap{background:none;border:0}
+.mk{width:28px;height:28px;border-radius:50%;background:var(--c);display:grid;place-items:center;
+  box-shadow:0 0 0 2px var(--surface),0 1px 5px rgba(0,0,0,.4);cursor:pointer;transition:transform .15s}
+.mk svg{width:16px;height:16px;fill:#fff}
+.mk:hover{transform:scale(1.12)}
+.mk.sel{transform:scale(1.25);box-shadow:0 0 0 2px var(--surface),0 0 0 4.5px var(--c),0 1px 6px rgba(0,0,0,.4)}
+.mk.est{outline:2px dashed var(--c);outline-offset:3px}
+
+/* Legend */
+.legend{position:absolute;left:12px;bottom:26px;z-index:800;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);padding:8px 12px;font-size:12.5px;display:grid;gap:3px;min-width:190px}
+.lg-row{display:flex;align-items:center;gap:8px}
+.lg-row b{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums}
+.lg-dot{width:11px;height:11px;border-radius:50%;background:var(--c);flex:none}
+.lg-sep{height:1px;background:var(--border);margin:4px 0}
+.lg-line{display:inline-block;width:22px;border-top:2.5px solid var(--text-2)}
+.lg-line.dash{border-top-style:dashed;border-top-width:2px}
+.lg-glyph svg{width:14px;height:14px;fill:var(--text-2);vertical-align:-2px}
+
+/* Popup */
+.ship-pop .leaflet-popup-content-wrapper{background:var(--surface);color:var(--text);border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--border);padding:0}
+.ship-pop .leaflet-popup-tip{background:var(--surface);box-shadow:none;border:1px solid var(--border)}
+.ship-pop .leaflet-popup-content{margin:0;width:290px!important;font-size:13px;line-height:1.45}
+.pop{padding:12px 14px 12px}
+.pop-head{display:flex;align-items:flex-start;gap:8px;margin-bottom:8px}
+.pop-head .t{flex:1;min-width:0}
+.pop-title{font-weight:650;font-size:15px}
+.pop-sub{color:var(--text-2);font-size:12.5px}
+.qbox{flex:none;width:20px;height:20px;border:1.5px solid var(--warning);background:color-mix(in srgb,var(--warning) 22%,transparent);border-radius:4px;
+  display:grid;place-items:center;font-weight:700;font-size:12px;color:var(--text);cursor:help}
+.x{flex:none;border:0;background:none;width:22px;height:22px;border-radius:6px;cursor:pointer;color:var(--text-2);font-size:18px;line-height:1}
+.x:hover{background:var(--surface-2)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:8px 0}
+.kv dt{color:var(--text-2)} .kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.note{color:var(--muted);font-size:12px;margin:6px 0 0}
+.pop .btn{width:100%;margin-top:10px}
+
+/* Chips & progress */
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:550;padding:2px 8px 2px 7px;border-radius:999px;background:var(--surface-2);white-space:nowrap}
+.chip:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c)}
+.leg{display:flex;justify-content:space-between;gap:8px;font-size:12.5px}
+.leg .code{font-weight:600}
+.track{height:6px;background:var(--surface-2);border-radius:3px;margin:5px 0 3px;overflow:hidden;box-shadow:inset 0 0 0 1px var(--border)}
+.track i{display:block;height:100%;background:var(--c);border-radius:3px}
+
+/* Sidebar */
+#sidebar{position:absolute;top:12px;right:12px;bottom:12px;width:410px;max-width:calc(100% - 24px);background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;box-shadow:var(--shadow);z-index:1000;display:flex;flex-direction:column;overflow:hidden}
+#sidebar.collapsed{width:auto;bottom:auto}
+.sb-head{display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid var(--border)}
+#sidebar.collapsed .sb-head{border:0}
+#sidebar.collapsed .tabs,#sidebar.collapsed .sb-body{display:none}
+.icon-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface);border-radius:8px;height:34px;padding:0 9px;cursor:pointer}
+.icon-btn:hover{background:var(--surface-2)}
+.icon-btn svg{width:18px;height:18px;fill:currentColor}
+.count{font-size:12px;font-weight:600;background:var(--surface-2);border-radius:999px;padding:0 7px;line-height:20px}
+.tabs{display:flex;gap:2px;background:var(--surface-2);border-radius:8px;padding:2px;flex:1}
+.tab{flex:1;border:0;background:none;border-radius:6px;padding:5px 8px;cursor:pointer;color:var(--text-2);font-size:13px}
+.tab.active{background:var(--surface);color:var(--text);font-weight:600;box-shadow:0 0 0 1px var(--border)}
+.sb-body{overflow:auto;flex:1;padding:4px 0 16px}
+.group{padding:6px 0}
+.group-head{display:flex;align-items:center;gap:8px;padding:8px 14px 4px;font-size:12.5px;color:var(--text-2);position:sticky;top:-4px;background:var(--surface);z-index:1}
+.group-head .name{flex:1;min-width:0}
+.group-head .name b{color:var(--text);font-size:13.5px}
+.row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;padding:8px 14px;cursor:pointer;border-radius:0}
+.row:hover{background:var(--surface-2)}
+.row.sel{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.row .mk{width:24px;height:24px;flex:none;cursor:inherit;box-shadow:none}
+.row .mk svg{width:14px;height:14px}
+.row-main{flex:1;min-width:0}
+.row-title{font-weight:600;display:flex;align-items:center;gap:6px}
+.row-title .qbox{width:16px;height:16px;font-size:10.5px}
+.row-sub{display:block;color:var(--text-2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-side{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:12px;color:var(--text-2)}
+.empty-list{padding:28px 18px;color:var(--text-2);text-align:center}
+
+/* Detail */
+.detail{padding:6px 16px 8px}
+.link{border:0;background:none;color:var(--accent);cursor:pointer;padding:6px 0;font-size:13px}
+.d-head{display:flex;gap:12px;align-items:center;margin:4px 0 10px}
+.d-head .mk{flex:none;cursor:default}
+.d-head h2{margin:0;font-size:18px}
+.d-head .sub{color:var(--text-2);font-size:12.5px}
+.callout{display:flex;gap:8px;align-items:center;border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin:8px 0;font-size:13px;background:var(--surface-2)}
+.callout.warn{border-color:color-mix(in srgb,var(--warning) 60%,transparent);background:color-mix(in srgb,var(--warning) 12%,var(--surface))}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px}
+.card{border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin:10px 0}
+.card h3{margin:0 0 6px;font-size:13px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
+.card dl{display:grid;grid-template-columns:minmax(110px,40%) 1fr;gap:5px 12px;margin:0;font-size:13px}
+.card dt{color:var(--text-2)} .card dd{margin:0;white-space:pre-line;overflow-wrap:anywhere}
+.card a{color:var(--accent)}
+.hist{list-style:none;margin:0;padding:0;font-size:12.5px;display:grid;gap:8px}
+.hist .when{color:var(--text-2)}
+.hist ul{margin:3px 0 0;padding-left:16px}
+del{color:var(--muted)}
+
+/* Empty state, drop overlay, dialog */
+.empty{position:absolute;inset:0;display:grid;place-items:center;z-index:900;pointer-events:none}
+.empty .card{pointer-events:auto;background:var(--surface);box-shadow:var(--shadow);max-width:420px;text-align:center;padding:22px 24px;margin:16px}
+.empty h2{margin:0 0 6px;font-size:17px}
+.empty p{margin:0 0 14px;color:var(--text-2)}
+#drop{position:fixed;inset:0;z-index:3000;background:color-mix(in srgb,var(--page) 75%,transparent);display:grid;place-items:center;pointer-events:none}
+#drop div{border:2.5px dashed var(--accent);border-radius:16px;padding:40px 48px;background:var(--surface);font-size:16px;font-weight:600;text-align:center;box-shadow:var(--shadow)}
+#drop small{display:block;font-weight:400;color:var(--text-2);margin-top:6px;font-size:13px}
+dialog{border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--text);box-shadow:var(--shadow);padding:0;width:min(560px,calc(100% - 32px));max-height:min(80vh,720px)}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+.dlg{padding:18px 20px}
+.dlg h2{margin:0 0 2px;font-size:17px}
+.dlg h3{margin:16px 0 6px;font-size:13.5px}
+.dlg ul{margin:0;padding-left:18px;font-size:13px}
+.dlg li{margin:2px 0}
+.dlg .foot{display:flex;justify-content:flex-end;margin-top:18px}
+.stat-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.stat{flex:1;min-width:90px;border:1px solid var(--border);border-radius:10px;padding:8px 10px}
+.stat b{display:block;font-size:20px;font-weight:650}
+.stat span{color:var(--text-2);font-size:12px}
+
+@media (max-width:640px){
+  .legend{display:none}
+  #sidebar:not(.collapsed){left:12px;width:auto}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Shipping Dashboard</h1>
+  <div class="meta" id="meta"></div>
+  <span class="ais-status" id="aisStatus" aria-live="polite" data-edit></span>
+  <button class="btn" id="aisBtn" data-action="ais-refresh" data-edit title="Pull live ship positions from AISStream (up to 10 min; positions appear as ships report)">Refresh positions</button>
+  <button class="btn primary" data-action="import" data-edit title="Import a supplier PROJECT DETAILS file (.xlsx) or a dashboard backup (.json)">Import file</button>
+  <button class="btn" data-action="export" data-edit title="Save all shipments, archive and history to a .json backup file">Export backup</button>
+  <button class="btn" id="publishBtn" data-action="publish" data-edit hidden title="Encrypt everything with the team password and publish it to the team's GitHub Pages link">Publish team view</button>
+  <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls,.csv,.json" hidden>
+</header>
+<main>
+  <div id="storageBanner" class="banner" hidden>Browser storage is unavailable, so imported shipments will be lost when this page closes. Use Export backup to keep them.</div>
+  <div id="map"></div>
+  <div id="mapMsg" class="map-msg" hidden>The map library could not load. An internet connection is needed for the map.</div>
+  <div id="legend" class="legend" aria-label="Map legend"></div>
+  <div id="empty" class="empty" hidden>
+    <div class="card">
+      <h2>No shipments yet</h2>
+      <p>Drop the supplier's PROJECT DETAILS file anywhere on this page, or choose it with Import file. It's read in your browser and never uploaded.</p>
+      <button class="btn primary" data-action="import" data-edit>Import file</button>
+    </div>
+  </div>
+  <aside id="sidebar" class="collapsed" aria-label="Shipments">
+    <div class="sb-head">
+      <button class="icon-btn" id="sbToggle" data-action="toggle-sidebar" aria-expanded="false" title="Show all shipments"></button>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-action="tab" data-tab="active" role="tab">Active <span id="cntActive"></span></button>
+        <button class="tab" data-action="tab" data-tab="archive" role="tab">Archive <span id="cntArchive"></span></button>
+      </div>
+    </div>
+    <div class="sb-body" id="sbBody"></div>
+  </aside>
+  <div id="teamGate" class="gate-overlay" hidden>
+    <form class="gate-card" id="gateForm">
+      <h2>Shipping Dashboard</h2>
+      <p>Team view. Enter the team password to see the shipments.</p>
+      <input class="pw-input" type="password" id="gatePw" autocomplete="current-password" placeholder="Team password" required>
+      <label class="check-row"><input type="checkbox" id="gateRemember"> Remember on this device</label>
+      <p class="gate-error" id="gateError" aria-live="polite"></p>
+      <button class="btn primary" type="submit">Unlock</button>
+    </form>
+  </div>
+  <div id="boatOverlay" class="boat-overlay" hidden>
+    <div class="boat-card" role="status" aria-live="polite">
+      <svg class="boat-scene" viewBox="0 0 240 140" aria-hidden="true">
+        <path class="cloud" d="M262 30a8 8 0 0 1 15-4a10 10 0 0 1 18 3a7 7 0 0 1 1 14h-32a7 7 0 0 1-2-13z"/>
+        <g class="sea">
+          <path class="wave w3" d="M-120 82q15 -5 30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0V140H-120Z"/>
+          <path class="wave w2" d="M-120 89q15 -6 30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0V140H-120Z"/>
+          <g class="rogue-wave">
+            <path d="M250 140V100C252 84 258 70 272 62C286 54 304 56 314 66C330 82 352 94 380 96V140Z"/>
+            <path class="foam" d="M262 66C270 56 290 52 306 58C296 58 286 62 280 70C276 64 268 64 262 66Z"/>
+          </g>
+          <g class="boat-ride"><g class="boat-bob">
+            <circle class="puff" cx="129" cy="45" r="3.5"/><circle class="puff" cx="129" cy="45" r="3.5"/><circle class="puff" cx="129" cy="45" r="3.5"/>
+            <line class="ink" x1="106" y1="66" x2="106" y2="49" fill="none"/>
+            <path class="ink" d="M106 49L117 52.5L106 56Z" fill="#1baf7a"/>
+            <rect class="ink" x="124" y="50" width="10" height="17" rx="1.5" fill="#eda100"/>
+            <rect x="124.8" y="50.8" width="8.4" height="3.6" fill="#1f2a44"/>
+            <rect class="ink" x="100" y="66" width="34" height="16" rx="3" fill="#fcfcfb"/>
+            <circle class="ink" cx="108" cy="74" r="2.6" fill="#6da7ec"/><circle class="ink" cx="117" cy="74" r="2.6" fill="#6da7ec"/><circle class="ink" cx="126" cy="74" r="2.6" fill="#6da7ec"/>
+            <path class="ink" d="M86 82H154Q152 92 145 100Q120 104 95 100Q88 92 86 82Z" fill="#e34948"/>
+            <line x1="88.5" y1="87" x2="151.5" y2="87" stroke="#fff" stroke-width="2.6"/>
+          </g></g>
+          <g class="splash">
+            <circle cx="92" cy="94" r="2.6" style="--dx:-18px;--dy:-16px"/><circle cx="98" cy="96" r="2" style="--dx:-10px;--dy:-22px"/>
+            <circle cx="148" cy="94" r="2.6" style="--dx:18px;--dy:-14px"/><circle cx="142" cy="96" r="2" style="--dx:9px;--dy:-24px"/>
+            <circle cx="120" cy="98" r="1.8" style="--dx:2px;--dy:-26px"/>
+          </g>
+          <path class="wave w1" d="M-120 97q15 -7 30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0V140H-120Z"/>
+        </g>
+      </svg>
+      <h2>Fetching live ship positions</h2>
+      <p id="boatText">Connecting to AISStream…</p>
+      <div class="boat-actions">
+        <button class="btn" data-action="boat-hide" title="Keep working - the refresh carries on and the button at the top shows progress">Hide</button>
+        <button class="btn" data-action="ais-refresh">Stop refresh</button>
+      </div>
+    </div>
+  </div>
+</main>
+<div id="drop" hidden><div>Drop to import<small>Supplier PROJECT DETAILS file (.xlsx) or a dashboard backup (.json)</small></div></div>
+<dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
+
+<script>
+(function(){
+'use strict';
+
+// ---------- Configuration ----------
+const STORAGE_KEY = 'shippingDashboard.v1';
+
+// Supplier columns: canonical key, display label, accepted header spellings, type. Matching ignores case/punctuation.
+const COLUMNS = [
+  ['poRef','PO ref',['PO REF','PO REFERENCE']],
+  ['fla','FLA',['FLA']],
+  ['project','Project',['PROJECT']],
+  ['terms','Terms',['TERMS','INCOTERMS']],
+  ['crd','CRD (cargo ready)',['CRD'],'date'],
+  ['siteExpected','Site expected date',['SITE EXPECTED DATE'],'date'],
+  ['earlier','Can it be delivered earlier',['CAN IT BE DELEVIED EARLIER','CAN IT BE DELIVERED EARLIER']],
+  ['carrier','Carrier',['CARRIER']],
+  ['vessel','Vessel / flight',['VESSEL / FLIGHT','VESSEL','FLIGHT']],
+  ['etd','ETD',['ETD'],'date'],
+  ['eta','ETA',['ETA'],'date'],
+  ['cargoAvailable','Cargo available',['CARGO AVAILABLE'],'date'],
+  ['podFreeDays','POD free days',['POD FREE DAYS']],
+  ['bookingConfirmed','Booking confirmed',['BOOKING CONFIRMED']],
+  ['method','Method',['METHOD','MODE']],
+  ['volume','Volume',['VOLUME']],
+  ['pol','POL',['POL']],
+  ['pod','POD',['POD']],
+  ['truck','Truck required',['TRUCK REQUIRED']],
+  ['docsRec','Shipper docs received',['SHIPPER DOCS REC','SHIPPER DOCS RECEIVED']],
+  ['shipper','Shipper',['SHIPPER']],
+  ['delivery','Delivery address',['DELIVERY']],
+  ['siteContact','Site contact',['SITE CONTACT']],
+  ['agent','Agent',['AGENT']],
+  ['transport','Transport',['TRANSPORT']],
+  ['actualAtSite','Actual date at site',['ACTUAL DATE AT SITE'],'date'],
+].map(([key,label,aliases,type]) => ({key, label, aliases:aliases.map(normHeader), type:type||'text'}));
+const COL = Object.fromEntries(COLUMNS.map(c => [c.key, c]));
+
+// Known locations (UN/LOCODE). Add new ones here when a supplier file uses a code the map doesn't know.
+const PORTS = {
+  CNSHA:{name:'Shanghai', lat:31.35, lng:121.62, aliases:['SHANGHAI','PVG','CNPVG']},
+  CNNGB:{name:'Ningbo', lat:29.87, lng:121.88, aliases:['NINGBO']},
+  CNSZX:{name:'Shenzhen', lat:22.57, lng:114.27, aliases:['SHENZHEN','YANTIAN','CNYTN']},
+  CNTAO:{name:'Qingdao', lat:36.07, lng:120.32, aliases:['QINGDAO']},
+  CNXMN:{name:'Xiamen', lat:24.45, lng:118.07, aliases:['XIAMEN']},
+  HKHKG:{name:'Hong Kong', lat:22.30, lng:114.17, aliases:['HONG KONG','HKG']},
+  TWKHH:{name:'Kaohsiung', lat:22.61, lng:120.28, aliases:['KAOHSIUNG']},
+  KRPUS:{name:'Busan', lat:35.10, lng:129.04, aliases:['BUSAN']},
+  SGSIN:{name:'Singapore', lat:1.26, lng:103.84, aliases:['SINGAPORE','SIN']},
+  DEHAM:{name:'Hamburg', lat:53.54, lng:9.97, aliases:['HAMBURG','HAM']},
+  DEBRV:{name:'Bremerhaven', lat:53.55, lng:8.58, aliases:['BREMERHAVEN']},
+  DEFRA:{name:'Frankfurt', lat:50.04, lng:8.56, aliases:['FRANKFURT','FRA']},
+  NLRTM:{name:'Rotterdam', lat:51.95, lng:4.14, aliases:['ROTTERDAM']},
+  BEANR:{name:'Antwerp', lat:51.26, lng:4.40, aliases:['ANTWERP']},
+  GBFXT:{name:'Felixstowe', lat:51.95, lng:1.31, aliases:['FELIXSTOWE']},
+  ITGOA:{name:'Genoa', lat:44.41, lng:8.92, aliases:['GENOA','GENOVA']},
+  USLAX:{name:'Los Angeles', lat:33.74, lng:-118.26, aliases:['LOS ANGELES','LAX']},
+  AUSYD:{name:'Sydney', lat:-33.975, lng:151.215, aliases:['SYDNEY','SYD','PORT BOTANY']},
+  AUMEL:{name:'Melbourne', lat:-37.84, lng:144.92, aliases:['MELBOURNE','MEL']},
+  AUBNE:{name:'Brisbane', lat:-27.38, lng:153.17, aliases:['BRISBANE','BNE']},
+  AUFRE:{name:'Fremantle', lat:-32.05, lng:115.74, aliases:['FREMANTLE','PERTH','PER']},
+  AUADL:{name:'Adelaide', lat:-34.80, lng:138.50, aliases:['ADELAIDE','ADL']},
+  NZAKL:{name:'Auckland', lat:-36.842, lng:174.78, aliases:['AUCKLAND','AKL']},
+  NZTRG:{name:'Tauranga', lat:-37.65, lng:176.18, aliases:['TAURANGA']},
+  NZWLG:{name:'Wellington', lat:-41.28, lng:174.78, aliases:['WELLINGTON','WLG']},
+  NZLYT:{name:'Lyttelton', lat:-43.61, lng:172.72, aliases:['LYTTELTON','CHRISTCHURCH','CHC']},
+};
+// Country-only entries are plotted at a main gateway and flagged as approximate.
+const COUNTRY_GATEWAY = {'GERMANY':'DEFRA','CHINA':'CNSHA','AUSTRALIA':'AUSYD','NEW ZEALAND':'NZAKL','NETHERLANDS':'NLRTM','ITALY':'ITGOA'};
+
+// Sea-lane waypoints (lat,lng) so routes follow open water. Unknown lanes fall back to a schematic arc.
+const LANES = {
+  'CNSHA>AUSYD': [[31.35,121.62],[31.1,122.4],[30.6,122.8],[25.0,122.3],[21.0,123.5],[12.0,131.0],[2.0,145.0],[-2.0,153.5],[-5.3,153.9],
+                  [-10.0,154.6],[-12.5,155.2],[-24.0,155.0],[-33.0,152.4],[-34.02,151.30],[-34.005,151.235],[-33.975,151.215]],
+  'AUMEL>NZAKL': [[-37.84,144.92],[-38.30,144.63],[-39.40,146.40],[-38.60,149.00],[-37.80,150.50],[-34.30,172.40],[-34.10,173.20],
+                  [-35.30,175.00],[-36.55,174.96],[-36.66,174.93],[-36.74,174.825],[-36.80,174.825],[-36.838,174.822],[-36.842,174.78]],
+};
+
+const STAGES = {
+  unbooked:{label:'Awaiting booking'},
+  pending:{label:'Awaiting departure'},
+  transit:{label:'In transit'},
+  arrived:{label:'At destination port'},
+  delivered:{label:'Delivered'},
+};
+
+const ICON = {
+  sea:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 14.5h17l-2.3 4.6a1.6 1.6 0 0 1-1.4.9H7.2a1.6 1.6 0 0 1-1.4-.9zM6 13V9.2c0-.6.5-1.2 1.2-1.2H11V4.5h3V8h2.8c.7 0 1.2.6 1.2 1.2V13z"/></svg>',
+  air:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>',
+  done:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>',
+  list:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>',
+  close:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.6 5.6 15 12l-6.4 6.4L7.2 17l5-5-5-5z"/></svg>',
+};
+
+// ---------- Helpers ----------
+function normHeader(s){ return String(s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim(); }
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2,'0');
+const isISO = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+const isoMs = v => isISO(v) ? Date.parse(v + 'T00:00:00Z') : null;
+const now = () => window.DASHBOARD_NOW ? Date.parse(window.DASHBOARD_NOW) : Date.now(); // DASHBOARD_NOW: testing override only
+const fmtD = new Intl.DateTimeFormat('en-AU',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
+const fmtDShort = new Intl.DateTimeFormat('en-AU',{day:'numeric',month:'short',timeZone:'UTC'});
+const fmtDT = new Intl.DateTimeFormat('en-AU',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+const fmtDate = v => isISO(v) ? fmtD.format(isoMs(v)) : (v || '—');
+const fmtShort = v => isISO(v) ? fmtDShort.format(isoMs(v)) : (v || 'TBA');
+const fmtStamp = v => v ? fmtDT.format(new Date(v)) : '—';
+const blank = v => v == null || String(v).trim() === '' || /^(TBA|TBC|N\/?A|-)$/i.test(String(v).trim());
+const clamp = (x,a,b) => Math.max(a, Math.min(b, x));
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+
+function dmyToISO(d, m, y){
+  d = +d; m = +m; y = +y; if (y < 100) y += 2000;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  return `${y}-${pad(m)}-${pad(d)}`;
+}
+function cellValue(v, type){
+  if (v == null) return '';
+  if (type === 'date'){
+    if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 86400000)).toISOString().slice(0,10);
+    const s = String(v).trim();
+    const m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
+    return (m && dmyToISO(m[1], m[2], m[3])) || s;
+  }
+  if (typeof v === 'boolean') return v ? 'YES' : 'NO';
+  return String(v).trim();
+}
+function projectNo(s){
+  const m = String(s.fields.poRef || '').match(/P\d{4,6}/i);
+  return m ? m[0].toUpperCase() : (s.fields.project || 'No project no.');
+}
+function vesselKey(v){
+  if (blank(v)) return null;
+  const toks = String(v).split('/')[0].trim().toUpperCase().split(/\s+/);
+  while (toks.length > 1 && /\d/.test(toks[toks.length - 1])) toks.pop(); // drop voyage no. e.g. V148S
+  return toks.join(' ') || null;
+}
+function resolveLoc(raw){
+  const n = normHeader(raw);
+  if (!n) return null;
+  const code = n.replace(/\s/g,'');
+  if (PORTS[code]) return {code, ...PORTS[code], raw, approx:false};
+  for (const [c,p] of Object.entries(PORTS)) if (p.aliases.includes(n)) return {code:c, ...p, raw, approx:false};
+  if (COUNTRY_GATEWAY[n]) { const c = COUNTRY_GATEWAY[n]; return {code:c, ...PORTS[c], raw, approx:true}; }
+  return {code:null, raw, unknown:true};
+}
+
+// ---------- Geometry ----------
+const R = Math.PI / 180;
+function hav(a, b){
+  const dLat = (b[0]-a[0])*R, dLng = (b[1]-a[1])*R;
+  const h = Math.sin(dLat/2)**2 + Math.cos(a[0]*R)*Math.cos(b[0]*R)*Math.sin(dLng/2)**2;
+  return 2 * Math.asin(Math.sqrt(h));
+}
+function unwrap(pts){
+  const out = [pts[0].slice()];
+  for (let i = 1; i < pts.length; i++){
+    let lng = pts[i][1]; const prev = out[i-1][1];
+    while (lng - prev > 180) lng -= 360;
+    while (lng - prev < -180) lng += 360;
+    out.push([pts[i][0], lng]);
+  }
+  return out;
+}
+function greatCircle(a, b, n = 64){
+  const p1 = a[0]*R, l1 = a[1]*R, p2 = b[0]*R, l2 = b[1]*R, d = hav(a, b);
+  if (d === 0) return [a, b];
+  const out = [];
+  for (let i = 0; i <= n; i++){
+    const f = i / n, A = Math.sin((1-f)*d)/Math.sin(d), B = Math.sin(f*d)/Math.sin(d);
+    const x = A*Math.cos(p1)*Math.cos(l1) + B*Math.cos(p2)*Math.cos(l2);
+    const y = A*Math.cos(p1)*Math.sin(l1) + B*Math.cos(p2)*Math.sin(l2);
+    const z = A*Math.sin(p1) + B*Math.sin(p2);
+    out.push([Math.atan2(z, Math.hypot(x, y))/R, Math.atan2(y, x)/R]);
+  }
+  return out;
+}
+function schematicArc(a, b, n = 40){
+  const [p, q] = unwrap([a, b]);
+  const mx = (p[0]+q[0])/2, my = (p[1]+q[1])/2, dx = q[0]-p[0], dy = q[1]-p[1];
+  const c = [mx - dy*0.18, my + dx*0.18];
+  const out = [];
+  for (let i = 0; i <= n; i++){ const t = i/n, u = 1-t; out.push([u*u*p[0]+2*u*t*c[0]+t*t*q[0], u*u*p[1]+2*u*t*c[1]+t*t*q[1]]); }
+  return out;
+}
+function pointAt(pts, t){
+  const segs = []; let total = 0;
+  for (let i = 0; i < pts.length - 1; i++){ const d = hav(pts[i], pts[i+1]); segs.push(d); total += d; }
+  let target = t * total;
+  for (let i = 0; i < segs.length; i++){
+    if (target <= segs[i] || i === segs.length - 1){
+      const f = segs[i] ? clamp(target / segs[i], 0, 1) : 0;
+      return {pt:[pts[i][0] + (pts[i+1][0]-pts[i][0])*f, pts[i][1] + (pts[i+1][1]-pts[i][1])*f], idx:i};
+    }
+    target -= segs[i];
+  }
+  return {pt:pts[pts.length-1], idx:pts.length-2};
+}
+// Closest point on the route to p (planar approximation), used to split travelled/remaining at a real AIS position.
+function nearestOnRoute(pts, p){
+  let best = {d:Infinity, pt:pts[0], idx:0};
+  const k = Math.cos(p[0]*R);
+  for (let i = 0; i < pts.length - 1; i++){
+    const a = pts[i], b = pts[i+1], dx = (b[1]-a[1])*k, dy = b[0]-a[0], len = dx*dx + dy*dy;
+    const t = len ? clamp(((p[1]-a[1])*k*dx + (p[0]-a[0])*dy) / len, 0, 1) : 0;
+    const d = ((p[1]-a[1])*k - t*dx)**2 + (p[0]-a[0] - t*dy)**2;
+    if (d < best.d) best = {d, pt:[a[0] + t*(b[0]-a[0]), a[1] + t*(b[1]-a[1])], idx:i};
+  }
+  return best;
+}
+const AIS_FRESH_MS = 12 * 3600000; // newer AIS reports replace the estimated position
+function ago(iso){
+  const m = Math.max(0, Math.round((now() - Date.parse(iso)) / 60000));
+  return m < 60 ? `${m} min ago` : m < 48*60 ? `${Math.round(m/60)} h ago` : `${Math.round(m/1440)} days ago`;
+}
+const fmtLatLng = (lat, lng) => `${Math.abs(lat).toFixed(2)}°${lat < 0 ? 'S' : 'N'} ${Math.abs(lng).toFixed(2)}°${lng < 0 ? 'W' : 'E'}`;
+
+// ---------- State ----------
+// TEAM_VIEW is set in the published (GitHub Pages) copy: read-only, data comes from the encrypted data.json.
+const TEAM = !!window.TEAM_VIEW;
+if (TEAM) document.documentElement.classList.add('team-view');
+let storageOK = true;
+let state = load();
+const ui = {tab:'active', detail:null, open:false, selected:null, fitted:false};
+
+function emptyState(){ return {version:1, shipments:{}, imports:[]}; }
+function load(){
+  if (TEAM) return emptyState();
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const s = raw ? JSON.parse(raw) : null;
+    return s && s.shipments ? s : emptyState();
+  } catch (e) { storageOK = false; return emptyState(); }
+}
+function save(){
+  if (TEAM) return;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); storageOK = true; }
+  catch (e) { storageOK = false; }
+  document.getElementById('storageBanner').hidden = storageOK;
+}
+
+// ---------- Derivation ----------
+function tracking(){ return (window.VESSEL_TRACKING && window.VESSEL_TRACKING.vessels) || {}; }
+
+function derive(s){
+  const f = s.fields;
+  const mode = /AIR/i.test(f.method || '') ? 'air' : 'sea';
+  const pol = resolveLoc(f.pol), pod = resolveLoc(f.pod);
+  const vehicle = blank(f.vessel) ? null : String(f.vessel).trim();
+
+  let vessel = null;
+  if (mode === 'sea' && vehicle){
+    const key = vesselKey(vehicle), v = tracking()[key];
+    vessel = v ? {key, found:true, ...v,
+      onVoyage: !!(pol && pod && v.lastPortCode === pol.code && v.destinationCode === pod.code),
+      inbound: !!(pol && v.destinationCode === pol.code),
+      live: typeof v.lat === 'number' && !!v.positionTime && now() - Date.parse(v.positionTime) <= AIS_FRESH_MS} : {key, found:false};
+  }
+
+  let dep = isoMs(f.etd), arr = isoMs(f.eta), timeSrc = 'schedule';
+  if (vessel && vessel.onVoyage && vessel.atd){ dep = Date.parse(vessel.atd); arr = vessel.eta ? Date.parse(vessel.eta) : arr; timeSrc = 'ais'; }
+
+  const t = now();
+  let stage;
+  if (isISO(f.actualAtSite) && isoMs(f.actualAtSite) <= t) stage = 'delivered';
+  else if (!vehicle || dep == null) stage = 'unbooked';
+  else if (t < dep) stage = 'pending';
+  else if (arr == null || t < arr) stage = 'transit';
+  else stage = 'arrived';
+  const progress = (dep != null && arr != null && arr > dep) ? clamp((t - dep) / (arr - dep), 0, 1) : (stage === 'arrived' || stage === 'delivered' ? 1 : 0);
+
+  let route = null, routeKind = null;
+  if (pol && pod && !pol.unknown && !pod.unknown){
+    const a = [pol.lat, pol.lng], b = [pod.lat, pod.lng];
+    const lane = LANES[pol.code + '>' + pod.code] || (LANES[pod.code + '>' + pol.code] || null)?.slice().reverse();
+    if (mode === 'sea' && lane){ route = lane; routeKind = 'lane'; }
+    else if (mode === 'air'){ route = greatCircle(a, b); routeKind = 'air'; }
+    else { route = schematicArc(a, b); routeKind = 'schematic'; }
+    route = unwrap(route);
+  }
+
+  let pos = null, posKind = null, split = null;
+  if (route){
+    const aisOk = vessel && vessel.live && (vessel.onVoyage || (pod && vessel.destinationCode === pod.code));
+    if (stage === 'transit' && aisOk){
+      let lng = vessel.lng; while (lng - route[0][1] > 180) lng -= 360; while (lng - route[0][1] < -180) lng += 360;
+      pos = [vessel.lat, lng]; posKind = 'ais'; split = nearestOnRoute(route, pos);
+    }
+    else if (stage === 'transit'){ const p = pointAt(route, progress); pos = p.pt; posKind = timeSrc === 'ais' ? 'est-ais' : 'est-schedule'; split = p; }
+    else if (stage === 'arrived' || stage === 'delivered'){ pos = route[route.length-1]; posKind = 'pod'; }
+    else { pos = route[0]; posKind = 'pol'; }
+  } else if (pol && !pol.unknown){ pos = [pol.lat, pol.lng]; posKind = 'pol'; }
+
+  return {s, key:s.key, f, mode, pol, pod, vehicle, vessel, dep, arr, timeSrc, stage, progress, route, routeKind, pos, posKind, split,
+    projectNo:projectNo(s), projectName:f.project || '', unconfirmed: !/^Y/i.test(String(f.bookingConfirmed || '').trim())};
+}
+
+// ---------- Import ----------
+function parseWorkbook(buf){
+  if (!window.XLSX) throw new Error('The spreadsheet reader could not load (needs an internet connection the first time).');
+  const wb = XLSX.read(buf, {type:'array'});
+  for (const sn of wb.SheetNames){
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, raw:true, defval:null, blankrows:false});
+    const hIdx = aoa.findIndex(r => { const n = (r || []).map(normHeader); return n.includes('FLA') && (n.includes('PO REF') || n.includes('ETA')); });
+    if (hIdx < 0) continue;
+    const headers = aoa[hIdx].map(h => h == null ? '' : String(h).trim());
+    const colMap = headers.map(h => { const n = normHeader(h); const c = COLUMNS.find(c => c.aliases.includes(n)); return c ? c.key : null; });
+    let reportDate = null;
+    for (const r of aoa.slice(0, hIdx)) for (const c of (r || [])){
+      const m = typeof c === 'string' && c.match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{2,4})/);
+      if (m && !reportDate) reportDate = dmyToISO(m[1], m[2], m[3]);
+    }
+    const rows = []; let skipped = 0;
+    for (const r of aoa.slice(hIdx + 1)){
+      const fields = {}, extra = {};
+      headers.forEach((h, i) => {
+        if (!h) return;
+        const key = colMap[i], v = cellValue(r[i], key ? COL[key].type : 'text');
+        if (key){ if (!fields[key]) fields[key] = v; }
+        else if (v !== '') extra[h] = v;
+      });
+      if (!fields.fla && !fields.poRef){ if (Object.values(fields).some(v => v !== '')) skipped++; continue; }
+      rows.push({key: fields.fla || ('PO ' + fields.poRef), fields, extra});
+    }
+    return {rows, reportDate, skipped,
+      presentKeys: new Set(colMap.filter(Boolean)),
+      unknownHeaders: headers.filter((h, i) => h && !colMap[i]),
+      missingColumns: COLUMNS.filter(c => !colMap.includes(c.key)).map(c => c.label)};
+  }
+  throw new Error('No header row containing "FLA" and "PO REF" was found. Is this the supplier PROJECT DETAILS file?');
+}
+
+function diff(ex, row){
+  const changes = [];
+  for (const c of COLUMNS){
+    const a = ex.fields[c.key] ?? '', b = row.fields[c.key] ?? '';
+    if (a !== b) changes.push({label:c.label, from:a, to:b});
+  }
+  const keys = new Set([...Object.keys(ex.extra || {}), ...Object.keys(row.extra)]);
+  for (const k of keys){ const a = (ex.extra || {})[k] ?? '', b = row.extra[k] ?? ''; if (a !== b) changes.push({label:k, from:a, to:b}); }
+  return changes;
+}
+
+function merge(parsed, file){
+  const at = new Date().toISOString();
+  const res = {file, reportDate:parsed.reportDate, total:parsed.rows.length, added:[], updated:[], unchanged:[], missing:[], duplicates:[],
+    skipped:parsed.skipped, unknownHeaders:parsed.unknownHeaders, missingColumns:parsed.missingColumns};
+  const seen = new Set();
+  for (const row of parsed.rows){
+    if (seen.has(row.key)) res.duplicates.push(row.key);
+    seen.add(row.key);
+    const ex = state.shipments[row.key];
+    if (!ex){
+      state.shipments[row.key] = {key:row.key, fields:row.fields, extra:row.extra, archived:false, firstSeen:at, lastSeen:at,
+        history:[{at, file, reportDate:parsed.reportDate, type:'added'}]};
+      res.added.push(row.key);
+      continue;
+    }
+    // Columns missing from this file keep their previous values.
+    for (const c of COLUMNS) if (!parsed.presentKeys.has(c.key) && c.key in ex.fields) row.fields[c.key] = ex.fields[c.key];
+    const changes = diff(ex, row);
+    ex.lastSeen = at;
+    if (changes.length){
+      ex.fields = row.fields; ex.extra = row.extra;
+      ex.history.push({at, file, reportDate:parsed.reportDate, type:'updated', changes});
+      res.updated.push({key:row.key, archived:ex.archived, changes});
+    } else res.unchanged.push(row.key);
+  }
+  res.missing = Object.values(state.shipments).filter(s => !s.archived && !seen.has(s.key)).map(s => s.key);
+  state.imports.push({at, file, reportDate:parsed.reportDate, added:res.added.length, updated:res.updated.length, unchanged:res.unchanged.length});
+  return res;
+}
+
+async function importFile(file){
+  if (!file) return;
+  try {
+    if (/\.json$/i.test(file.name)) return restoreBackup(JSON.parse(await file.text()), file.name);
+    const parsed = parseWorkbook(await file.arrayBuffer());
+    const res = merge(parsed, file.name);
+    save(); ui.fitted = false; render();
+    showSummary(res);
+  } catch (e) {
+    showDialog(`<h2>Couldn't import ${esc(file.name)}</h2><p>${esc(e.message)}</p>`);
+  }
+}
+
+function restoreBackup(data, name){
+  if (!data || data.app !== 'shipping-dashboard' || !data.state || !data.state.shipments) throw new Error('This .json file is not a Shipping Dashboard backup.');
+  const n = Object.keys(data.state.shipments).length, cur = Object.keys(state.shipments).length;
+  if (!confirm(`Replace the current data (${plural(cur,'shipment')}) with the backup from ${fmtStamp(data.exportedAt)} (${plural(n,'shipment')})?`)) return;
+  state = data.state; save(); ui.detail = null; ui.fitted = false; render();
+  showDialog(`<h2>Backup restored</h2><p>${esc(name)} — ${plural(n,'shipment')} loaded.</p>`);
+}
+
+function exportBackup(){
+  const today = new Date().toISOString().slice(0,10);
+  const blob = new Blob([JSON.stringify({app:'shipping-dashboard', version:1, exportedAt:new Date().toISOString(), state}, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `shipping-dashboard-backup-${today}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// ---------- Dialogs ----------
+const dlg = document.getElementById('dlg');
+function showDialog(html){
+  document.getElementById('dlgBody').innerHTML = html + '<div class="foot"><button class="btn primary" data-action="close-dialog">Close</button></div>';
+  if (!dlg.open) dlg.showModal();
+}
+function showSummary(r){
+  const byKey = k => state.shipments[k] ? derive(state.shipments[k]) : null;
+  const line = k => { const d = byKey(k); return d ? `<b>${esc(k)}</b> · ${esc(d.projectName)} (${esc(d.projectNo)}) · ${esc(d.f.pol || '?')} → ${esc(d.f.pod || '?')}` : esc(k); };
+  const val = v => esc(isISO(v) ? fmtDate(v) : (v === '' ? '(blank)' : v));
+  let h = `<h2>Imported ${esc(r.file)}</h2><div class="muted">${r.reportDate ? 'Supplier report dated ' + fmtDate(r.reportDate) + ' · ' : ''}${plural(r.total,'shipment row')}</div>
+    <div class="stat-row"><div class="stat"><b>${r.added.length}</b><span>new</span></div><div class="stat"><b>${r.updated.length}</b><span>updated</span></div>
+    <div class="stat"><b>${r.unchanged.length}</b><span>unchanged</span></div><div class="stat"><b>${r.missing.length}</b><span>not in this file</span></div></div>`;
+  if (r.added.length) h += `<h3>New shipments</h3><ul>${r.added.map(k => `<li>${line(k)}</li>`).join('')}</ul>`;
+  if (r.updated.length) h += `<h3>Updated shipments</h3><ul>${r.updated.map(u => `<li>${line(u.key)}${u.archived ? ' <span class="muted">(archived)</span>' : ''}<ul>${
+      u.changes.map(c => `<li>${esc(c.label)}: <del>${val(c.from)}</del> → ${val(c.to)}</li>`).join('')}</ul></li>`).join('')}</ul>`;
+  if (r.missing.length) h += `<h3>Active but not in this file</h3><p class="muted" style="margin:0 0 4px;font-size:13px">Kept as they were. If they're complete, review and archive them.</p><ul>${r.missing.map(k => `<li>${line(k)}</li>`).join('')}</ul>`;
+  const warn = [];
+  if (r.duplicates.length) warn.push(`Duplicate rows for ${esc(r.duplicates.join(', '))}. The last row was used.`);
+  if (r.skipped) warn.push(`${plural(r.skipped,'row')} skipped because they had no FLA or PO REF.`);
+  if (r.unknownHeaders.length) warn.push(`New columns kept as extra details: ${esc(r.unknownHeaders.join(', '))}.`);
+  if (r.missingColumns.length) warn.push(`Columns not in this file (previous values kept): ${esc(r.missingColumns.join(', '))}.`);
+  if (warn.length) h += `<h3>Notes</h3><ul>${warn.map(w => `<li>${w}</li>`).join('')}</ul>`;
+  showDialog(h);
+}
+
+// ---------- Map ----------
+let map = null, layer = null;
+const markers = {}, routes = {};
+const mq = matchMedia('(prefers-color-scheme: dark)');
+// Esri grey canvas basemap (no API key needed): base layer plus a place-name layer on top.
+const tileUrl = kind => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${mq.matches ? 'Dark' : 'Light'}_Gray_${kind}/MapServer/tile/{z}/{y}/{x}`;
+
+if (window.L){
+  map = L.map('map', {worldCopyJump:true, minZoom:2, maxZoom:16, zoomControl:true}).setView([-10, 140], 3);
+  const base = L.tileLayer(tileUrl('Base'), {maxZoom:16, attribution:'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'}).addTo(map);
+  const labels = L.tileLayer(tileUrl('Reference'), {maxZoom:16}).addTo(map);
+  mq.addEventListener('change', () => { base.setUrl(tileUrl('Base')); labels.setUrl(tileUrl('Reference')); });
+  layer = L.layerGroup().addTo(map);
+  map.on('click', () => { if (!ui.detail) select(null); });
+  map.on('popupclose', e => { if (ui.selected === e.popup._fla && ui.detail !== ui.selected) select(null); });
+} else document.getElementById('mapMsg').hidden = false;
+
+function sidebarWidth(){ const el = document.getElementById('sidebar'); return ui.open ? el.offsetWidth + 12 : 60; }
+
+function renderMap(list){
+  if (!map) return;
+  layer.clearLayers();
+  for (const k in markers) delete markers[k];
+  for (const k in routes) delete routes[k];
+  const active = list.filter(d => !d.s.archived);
+  const bounds = [];
+
+  for (const d of active){
+    if (!d.route) continue;
+    const cls = `route st-${d.stage}`;
+    const parts = [];
+    if (d.stage === 'transit' && d.split){
+      const done = d.route.slice(0, d.split.idx + 1).concat([d.split.pt]);
+      const rest = [d.split.pt].concat(d.route.slice(d.split.idx + 1));
+      parts.push(L.polyline(done, {className:cls + ' solid', interactive:false}), L.polyline(rest, {className:cls + ' dash', interactive:false}));
+    } else parts.push(L.polyline(d.route, {className:cls + (d.stage === 'arrived' || d.stage === 'delivered' ? ' solid' : ' dash'), interactive:false}));
+    parts.forEach(p => p.addTo(layer));
+    routes[d.key] = parts;
+    bounds.push(...d.route);
+  }
+
+  const ports = {};
+  for (const d of active) for (const p of [d.pol, d.pod]) if (p && !p.unknown) ports[p.code] = p;
+  for (const p of Object.values(ports)){
+    L.circleMarker([p.lat, p.lng], {radius:4, className:'port'}).bindTooltip(`${esc(p.code)} · ${esc(p.name)}${p.approx ? ' (approx.)' : ''}`, {direction:'top'}).addTo(layer);
+  }
+
+  // Shipments sharing a spot fan out around it.
+  const spots = {};
+  for (const d of active) if (d.pos) (spots[d.pos[0].toFixed(3) + ',' + d.pos[1].toFixed(3)] ||= []).push(d);
+  for (const group of Object.values(spots)){
+    group.forEach((d, i) => {
+      const n = group.length, r = n > 1 ? 17 : 0, ang = -Math.PI/2 + i * 2*Math.PI/n;
+      const dx = r*Math.cos(ang), dy = r*Math.sin(ang);
+      const icon = L.divIcon({className:'mk-wrap', iconSize:[28,28], iconAnchor:[14 - dx, 14 - dy], popupAnchor:[dx, dy - 16],
+        html:`<div class="mk st-${d.stage}${d.posKind && d.posKind.startsWith('est') ? ' est' : ''}${ui.selected === d.key ? ' sel' : ''}">${glyph(d)}</div>`});
+      const m = L.marker(d.pos, {icon, keyboard:true, title:d.key, riseOnHover:true}).addTo(layer);
+      m.bindTooltip(`<b>${esc(d.key)}</b> · ${esc(d.projectName)} · ${STAGES[d.stage].label}`, {direction:'top', offset:[dx, dy - 14]});
+      m.bindPopup(() => popupHtml(d), {className:'ship-pop', closeButton:false, maxWidth:320, minWidth:290,
+        autoPanPaddingTopLeft:[16,16], autoPanPaddingBottomRight:[Math.min(sidebarWidth() + 16, innerWidth * 0.45), 16]});
+      m.getPopup()._fla = d.key;
+      m.on('click', () => select(d.key));
+      markers[d.key] = m;
+      bounds.push(d.pos);
+    });
+  }
+  applySelection();
+
+  if (!ui.fitted && bounds.length){
+    map.fitBounds(L.latLngBounds(bounds), {paddingTopLeft:[40,40], paddingBottomRight:[sidebarWidth() + 30, 40], maxZoom:5});
+    ui.fitted = true;
+  }
+}
+
+function glyph(d){ return d.stage === 'delivered' ? ICON.done : ICON[d.mode]; }
+
+function applySelection(){
+  if (!map) return;
+  map.getContainer().classList.toggle('has-sel', !!ui.selected && !!routes[ui.selected]);
+  for (const [k, parts] of Object.entries(routes)) parts.forEach(p => p.getElement() && p.getElement().classList.toggle('sel', k === ui.selected));
+  for (const [k, m] of Object.entries(markers)){ const el = m.getElement(); el && el.querySelector('.mk').classList.toggle('sel', k === ui.selected); }
+}
+
+function select(key){
+  ui.selected = key;
+  applySelection();
+  document.querySelectorAll('.row').forEach(r => r.classList.toggle('sel', r.dataset.fla === key));
+}
+
+function showOnMap(key){
+  const m = markers[key];
+  if (!m) return;
+  if (innerWidth <= 640) toggleSidebar(false);
+  select(key);
+  const z = Math.max(map.getZoom(), 4);
+  const pt = map.project(m.getLatLng(), z).add([ui.open ? sidebarWidth() / 2 : 0, 0]);
+  map.flyTo(map.unproject(pt, z), z, {duration:0.6});
+  map.once('moveend', () => m.openPopup());
+}
+
+function popupHtml(d){
+  const f = d.f;
+  const etaLine = d.stage === 'transit' && d.arr ? `ETA in ${plural(Math.max(0, Math.ceil((d.arr - now()) / 86400000)), 'day')}` : '';
+  const v = d.vessel, fix = v && v.positionTime ? `AIS ${ago(v.positionTime)}` : '';
+  let note = '';
+  if (d.posKind === 'ais') note = `Live AIS position, reported ${ago(v.positionTime)}${v.speedKn != null ? ' · ' + esc(v.speedKn) + ' kn' : ''}`;
+  else if (d.posKind === 'est-ais') note = `Estimated position from AIS departure and ETA${fix ? ' · last ' + fix : ''}`;
+  else if (d.posKind === 'est-schedule') note = `Estimated position from supplier ETD/ETA${fix ? ' · last ' + fix : ''}`;
+  else if (v && v.found && !v.onVoyage) note = `Vessel now: ${v.status ? esc(v.status) + ', ' : ''}heading to ${esc(v.destination || '?')}${v.eta ? ', ETA ' + fmtStamp(v.eta) : ''}${fix ? ' · ' + fix : ''}`;
+  return `<div class="pop">
+    <div class="pop-head">
+      <div class="t"><div class="pop-title">${esc(d.key)}</div><div class="pop-sub">${esc(d.projectName)} · ${esc(d.projectNo)}</div></div>
+      ${d.unconfirmed ? '<span class="qbox" title="Booking not confirmed yet" aria-label="Booking not confirmed yet">?</span>' : ''}
+      <button class="x" data-action="close-popup" aria-label="Close">×</button>
+    </div>
+    <span class="chip st-${d.stage}">${STAGES[d.stage].label}</span>
+    ${legHtml(d)}
+    <dl class="kv">
+      <dt>${d.mode === 'air' ? 'Flight' : 'Vessel'}</dt><dd>${esc(d.vehicle || 'TBA')}${f.carrier && !blank(f.carrier) ? ' · ' + esc(f.carrier) : ''}</dd>
+      <dt>Mode</dt><dd>${d.mode === 'air' ? 'Air' : 'Sea'}${f.volume && !blank(f.volume) ? ' · ' + esc(f.volume) : ''}</dd>
+      <dt>Site expected</dt><dd>${esc(fmtDate(f.siteExpected))}</dd>
+      ${etaLine ? `<dt>Arrival</dt><dd>${etaLine}</dd>` : ''}
+    </dl>
+    ${note ? `<p class="note">${note}</p>` : ''}
+    <button class="btn" data-action="detail" data-fla="${esc(d.key)}">Full details →</button>
+  </div>`;
+}
+
+function legHtml(d){
+  const f = d.f, pct = Math.round(d.progress * 100);
+  const name = p => p ? (p.unknown ? '' : esc(p.name) + (p.approx ? ' (approx.)' : '')) : '';
+  return `<div style="margin-top:10px">
+    <div class="leg"><span><span class="code">${esc(f.pol || '?')}</span> ${name(d.pol)}</span><span><span class="code">${esc(f.pod || '?')}</span> ${name(d.pod)}</span></div>
+    <div class="track st-${d.stage}" title="${pct}% of scheduled transit time elapsed"><i style="width:${pct}%"></i></div>
+    <div class="leg muted"><span>ETD ${esc(fmtShort(f.etd))}</span><span>ETA ${esc(fmtShort(f.eta))}</span></div>
+  </div>`;
+}
+
+// ---------- Sidebar ----------
+const sidebar = document.getElementById('sidebar'), sbBody = document.getElementById('sbBody');
+
+function toggleSidebar(open){
+  ui.open = open ?? !ui.open;
+  sidebar.classList.toggle('collapsed', !ui.open);
+  renderToggle();
+}
+function renderToggle(){
+  const n = Object.values(state.shipments).filter(s => !s.archived).length;
+  const t = document.getElementById('sbToggle');
+  t.innerHTML = ui.open ? ICON.close : `${ICON.list}<span>Shipments</span><span class="count">${n}</span>`;
+  t.title = ui.open ? 'Collapse' : 'Show all shipments';
+  t.setAttribute('aria-expanded', String(ui.open));
+}
+
+function groupsOf(list){
+  const g = {};
+  for (const d of list) (g[d.projectNo] ||= {no:d.projectNo, name:d.projectName, items:[]}).items.push(d);
+  const groups = Object.values(g).sort((a, b) => a.name.localeCompare(b.name) || a.no.localeCompare(b.no));
+  for (const x of groups) x.items.sort((a, b) => (a.dep ?? Infinity) - (b.dep ?? Infinity) || a.key.localeCompare(b.key));
+  return groups;
+}
+
+function rowHtml(d){
+  const sub = [`${esc(d.f.pol || '?')} → ${esc(d.f.pod || '?')}`, esc(d.vehicle || (d.mode === 'air' ? 'Air · flight TBA' : 'Vessel TBA'))].join(' · ');
+  const side = d.s.archived ? `<span>Archived ${esc(fmtShort((d.s.archivedAt || '').slice(0,10)))}</span>` :
+    `<span class="chip st-${d.stage}">${STAGES[d.stage].label}</span><span>ETA ${esc(fmtShort(d.f.eta))}</span>`;
+  return `<button class="row${ui.selected === d.key ? ' sel' : ''}" data-action="detail" data-fla="${esc(d.key)}">
+    <span class="mk st-${d.stage}">${glyph(d)}</span>
+    <span class="row-main"><span class="row-title">${esc(d.key)}${d.unconfirmed && !d.s.archived ? ' <span class="qbox" title="Booking not confirmed yet">?</span>' : ''}</span>
+      <span class="row-sub">${sub}</span></span>
+    <span class="row-side">${side}</span></button>`;
+}
+
+function renderList(list){
+  const archived = ui.tab === 'archive';
+  const items = list.filter(d => !!d.s.archived === archived);
+  if (!items.length){
+    sbBody.innerHTML = `<div class="empty-list">${archived ? 'No archived shipments yet. Archive a shipment from its detail view once it\'s complete.' : 'No active shipments. Import a supplier file to add some.'}</div>`;
+    return;
+  }
+  sbBody.innerHTML = groupsOf(items).map(g => `<div class="group">
+    <div class="group-head"><span class="name"><b>${esc(g.no)}</b> · ${esc(g.name)} <span class="muted">(${g.items.length})</span></span>
+      <button class="btn small" data-edit data-action="${archived ? 'restore-project' : 'archive-project'}" data-project="${esc(g.no)}"
+        title="${archived ? 'Restore' : 'Archive'} every shipment in ${esc(g.no)}">${archived ? 'Restore all' : 'Archive all'}</button></div>
+    ${g.items.map(rowHtml).join('')}</div>`).join('');
+}
+
+function renderDetail(d){
+  const f = d.f, s = d.s, v = d.vessel;
+  let vesselCard = '';
+  if (d.mode === 'sea' && d.vehicle){
+    const q = encodeURIComponent(v ? v.key : d.vehicle);
+    const links = v && v.imo ? `<a href="https://www.vesselfinder.com/vessels/details/${esc(v.imo)}" target="_blank" rel="noopener">VesselFinder</a> · <a href="https://www.marinetraffic.com/en/ais/details/ships/imo:${esc(v.imo)}" target="_blank" rel="noopener">MarineTraffic</a>`
+      : `<a href="https://www.vesselfinder.com/vessels?name=${q}" target="_blank" rel="noopener">Search VesselFinder</a>`;
+    let rel = '';
+    if (v && v.found) rel = v.onVoyage ? 'This is the voyage carrying this shipment.' : v.inbound ? `Inbound to the load port ${esc(f.pol)}.` :
+      `On an earlier voyage. This shipment loads at ${esc(f.pol)}, ETD ${esc(fmtDate(f.etd))}.`;
+    vesselCard = `<section class="card"><h3>Vessel tracking</h3>${v && v.found ? `<dl>
+      <dt>Vessel</dt><dd>${esc(d.vehicle)}<br><span class="muted">IMO ${esc(v.imo)} · ${esc(v.flag || '')}</span></dd>
+      ${typeof v.lat === 'number' ? `<dt>Position</dt><dd>${fmtLatLng(v.lat, v.lng)}<br><span class="muted">reported ${ago(v.positionTime)} (${fmtStamp(v.positionTime)})</span></dd>` : ''}
+      <dt>Status</dt><dd>${esc(v.status || '—')}${v.speedKn ? ', ' + esc(v.speedKn) + ' kn' : ''}${v.area ? ' · ' + esc(v.area) : ''}</dd>
+      <dt>Last port</dt><dd>${esc(v.lastPort || '—')}${v.atd ? '<br><span class="muted">departed ' + fmtStamp(v.atd) + '</span>' : ''}</dd>
+      <dt>Heading to</dt><dd>${esc(v.destination || '—')}${v.eta ? '<br><span class="muted">ETA ' + fmtStamp(v.eta) + '</span>' : ''}</dd>
+      <dt>Voyage</dt><dd>${rel}</dd>
+      <dt>Source</dt><dd>${v.positionSource ? 'Position: ' + esc(v.positionSource) + '<br>' : ''}${v.source ? 'Voyage: ' + esc(v.source) : ''}${v.positionAge ? ', position ' + esc(v.positionAge) : ''}<br><span class="muted">checked ${fmtStamp(window.VESSEL_TRACKING.checkedAt)}</span></dd>
+      <dt>Live</dt><dd>${links}</dd></dl>` :
+      `<p class="muted" style="margin:0 0 6px">This vessel isn't in tracking.js yet. Ask Claude to add it (it needs the vessel's MMSI).</p>${links}`}</section>`;
+  }
+
+  const dl = COLUMNS.map(c => `<dt>${esc(c.label)}</dt><dd>${esc(c.type === 'date' ? fmtDate(f[c.key]) : (f[c.key] || '—'))}</dd>`).join('')
+    + Object.entries(s.extra || {}).map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('');
+
+  const locNotes = [d.pol, d.pod].filter(p => p && (p.approx || p.unknown)).map(p => p.unknown
+    ? `"${esc(p.raw)}" isn't a known location, so this shipment can't be placed on the map.`
+    : `"${esc(p.raw)}" is plotted at ${esc(p.name)} (${esc(p.code)}), which is approximate.`);
+
+  const hist = (s.history || []).slice().reverse().map(h => `<li><span class="when">${fmtStamp(h.at)}</span> — ${
+    h.type === 'added' ? `added from ${esc(h.file)}` : h.type === 'archived' ? 'archived' : h.type === 'restored' ? 'restored from archive' : `updated from ${esc(h.file)}`}${
+    h.changes ? `<ul>${h.changes.map(c => `<li>${esc(c.label)}: <del>${esc(isISO(c.from) ? fmtDate(c.from) : c.from || '(blank)')}</del> → ${esc(isISO(c.to) ? fmtDate(c.to) : c.to || '(blank)')}</li>`).join('')}</ul>` : ''}</li>`).join('');
+
+  sbBody.innerHTML = `<div class="detail">
+    <button class="link" data-action="back">← All shipments</button>
+    <div class="d-head"><span class="mk st-${d.stage}">${glyph(d)}</span>
+      <div style="flex:1;min-width:0"><h2>${esc(d.key)}</h2><div class="sub">${esc(d.projectName)} · ${esc(d.projectNo)}${f.poRef && f.poRef !== d.projectNo ? ' · PO ' + esc(f.poRef) : ''}</div></div>
+      <span class="chip st-${d.stage}">${STAGES[d.stage].label}</span></div>
+    ${d.unconfirmed && !s.archived ? '<div class="callout warn"><span class="qbox">?</span>Booking not confirmed yet.</div>' : ''}
+    ${s.archived ? `<div class="callout">Archived ${fmtStamp(s.archivedAt)}. Hidden from the map.</div>` : ''}
+    ${d.stage === 'delivered' && !s.archived ? '<div class="callout">Delivered to site. Review it and archive when complete.</div>' : ''}
+    ${locNotes.map(n => `<div class="callout warn">${n}</div>`).join('')}
+    <div class="actions">
+      ${!s.archived && markers[d.key] ? `<button class="btn" data-action="show-on-map" data-fla="${esc(d.key)}">Show on map</button>` : ''}
+      ${s.archived ? `<button class="btn" data-edit data-action="restore" data-fla="${esc(d.key)}">Restore to active</button>`
+                   : `<button class="btn" data-edit data-action="archive" data-fla="${esc(d.key)}">Archive shipment</button>`}
+    </div>
+    <section class="card"><h3>Route</h3>${legHtml(d)}
+      ${d.posKind === 'ais' ? '<p class="note">Map position is the latest live AIS report.</p>' : d.posKind === 'est-ais' ? '<p class="note">Map position is estimated along the route from AIS departure and ETA.</p>' : d.posKind === 'est-schedule' ? '<p class="note">Map position is estimated from supplier ETD and ETA.</p>' : ''}
+      ${d.routeKind === 'schematic' || d.routeKind === 'air' ? '<p class="note">The route line is indicative, not the actual path.</p>' : ''}</section>
+    ${vesselCard}
+    <section class="card"><h3>Shipment details</h3><dl>${dl}</dl></section>
+    <section class="card"><h3>History</h3><ul class="hist">${hist || '<li class="muted">No history.</li>'}</ul></section>
+  </div>`;
+}
+
+function renderSidebar(list){
+  renderToggle();
+  const nA = list.filter(d => !d.s.archived).length, nR = list.length - nA;
+  document.getElementById('cntActive').textContent = `(${nA})`;
+  document.getElementById('cntArchive').textContent = `(${nR})`;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === ui.tab));
+  const d = ui.detail && list.find(x => x.key === ui.detail);
+  if (d) renderDetail(d); else { ui.detail = null; renderList(list); }
+}
+
+// ---------- Header & legend ----------
+function renderMeta(){
+  const last = state.imports[state.imports.length - 1];
+  const tr = window.VESSEL_TRACKING;
+  if (TEAM){
+    document.getElementById('meta').innerHTML = teamPublishedAt
+      ? `Team view (read-only) · published <b>${fmtStamp(teamPublishedAt)}</b>${tr ? ' · vessel data checked ' + fmtStamp(tr.checkedAt) : ''}` : 'Team view (read-only)';
+    return;
+  }
+  document.getElementById('meta').innerHTML = [
+    last ? `Last import: <b>${esc(last.file)}</b>${last.reportDate ? ' (supplier report ' + fmtDate(last.reportDate) + ')' : ''}, ${fmtStamp(last.at)}` : 'No supplier file imported yet',
+    tr ? `Vessel data checked ${fmtStamp(tr.checkedAt)}` : 'No vessel tracking file (tracking.js) found',
+  ].join(' · ');
+}
+function renderLegend(list){
+  const active = list.filter(d => !d.s.archived);
+  const count = st => active.filter(d => st.includes(d.stage)).length;
+  const rows = [['unbooked',['unbooked']],['pending',['pending']],['transit',['transit']],['arrived',['arrived','delivered']]];
+  document.getElementById('legend').innerHTML = rows.map(([st, inc]) =>
+    `<div class="lg-row"><span class="lg-dot st-${st}"></span>${st === 'arrived' ? 'At destination / delivered' : STAGES[st].label}<b>${count(inc)}</b></div>`).join('') +
+    `<div class="lg-sep"></div>
+     <div class="lg-row"><span class="lg-glyph">${ICON.sea}</span>Sea <span class="lg-glyph" style="margin-left:8px">${ICON.air}</span>Air</div>
+     <div class="lg-row"><span class="lg-line"></span>travelled <span class="lg-line dash" style="margin-left:6px"></span>planned</div>
+     <div class="lg-row"><span class="lg-dot st-transit" style="outline:1.5px dashed var(--c);outline-offset:2px"></span>estimated position</div>`;
+}
+
+function render(){
+  const list = Object.values(state.shipments).map(derive);
+  renderMeta(); renderLegend(list); renderMap(list); renderSidebar(list);
+  document.getElementById('empty').hidden = list.length > 0;
+  document.getElementById('storageBanner').hidden = storageOK;
+}
+
+// ---------- Archive ----------
+function setArchived(keys, archived){
+  const at = new Date().toISOString();
+  for (const k of keys){
+    const s = state.shipments[k];
+    if (!s || !!s.archived === archived) continue;
+    s.archived = archived; s.archivedAt = archived ? at : null;
+    s.history.push({at, type: archived ? 'archived' : 'restored'});
+  }
+  if (keys.includes(ui.selected)) ui.selected = null;
+  save(); render();
+}
+
+// ---------- Events ----------
+const fileInput = document.getElementById('fileInput');
+fileInput.addEventListener('change', () => { importFile(fileInput.files[0]); fileInput.value = ''; });
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const a = el.dataset.action, key = el.dataset.fla;
+  if (TEAM && ['import', 'export', 'archive', 'restore', 'archive-project', 'restore-project', 'ais-refresh', 'publish', 'publish-go'].includes(a)) return; // read-only
+  switch (a){
+    case 'import': fileInput.click(); break;
+    case 'export': exportBackup(); break;
+    case 'toggle-sidebar': toggleSidebar(); break;
+    case 'tab': ui.tab = el.dataset.tab; ui.detail = null; render(); break;
+    case 'detail':
+      if (map) map.closePopup();
+      toggleSidebar(true); ui.detail = key; ui.tab = state.shipments[key]?.archived ? 'archive' : 'active';
+      select(key); render(); sbBody.scrollTop = 0; break;
+    case 'back': ui.detail = null; render(); break;
+    case 'show-on-map': showOnMap(key); break;
+    case 'archive': setArchived([key], true); break;
+    case 'restore': setArchived([key], false); break;
+    case 'archive-project': case 'restore-project': {
+      const arch = a === 'archive-project', no = el.dataset.project;
+      const keys = Object.values(state.shipments).filter(s => !!s.archived !== arch && projectNo(s) === no).map(s => s.key);
+      if (confirm(`${arch ? 'Archive' : 'Restore'} ${plural(keys.length,'shipment')} in ${no}?`)) setArchived(keys, arch);
+      break;
+    }
+    case 'close-popup': if (map) map.closePopup(); break;
+    case 'close-dialog': dlg.close(); break;
+    case 'ais-refresh': aisClick(); break;
+    case 'boat-hide': boatHidden = true; showBoat(false); break;
+    case 'publish': publishDialog(); break;
+    case 'publish-go': publishGo(el); break;
+  }
+});
+
+// ---------- Live AIS refresh (works when opened through Shipping Dashboard.exe) ----------
+const viaHelper = location.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(location.hostname);
+const aisBtn = document.getElementById('aisBtn'), aisStatus = document.getElementById('aisStatus');
+let aisPoll = null, aisSavedAt = null, aisFirstTick = true;
+
+// Boat overlay while a refresh runs. "Hide" keeps it away until the next refresh.
+const boatEl = document.getElementById('boatOverlay'), boatSea = boatEl.querySelector('.sea'), boatText = document.getElementById('boatText');
+const calmSeas = matchMedia('(prefers-reduced-motion: reduce)');
+let boatHidden = false, rogueTimer = null;
+function showBoat(on){
+  const show = on && !boatHidden;
+  if (show === !boatEl.hidden) return;
+  boatEl.hidden = !show;
+  clearTimeout(rogueTimer);
+  if (show) queueRogue();
+}
+function queueRogue(){ // the occasional rogue wave, every 7-15 s
+  if (calmSeas.matches) return;
+  rogueTimer = setTimeout(() => {
+    boatSea.classList.remove('rogue');
+    void boatSea.getBoundingClientRect(); // restart the animation
+    boatSea.classList.add('rogue');
+    queueRogue();
+  }, 7000 + Math.random() * 8000);
+}
+
+async function api(p, method = 'GET'){
+  const r = await fetch(p, {method, cache:'no-store'});
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+function reloadTracking(){
+  return new Promise(resolve => {
+    const s = document.createElement('script');
+    s.src = 'tracking.js?t=' + Date.now();
+    s.onload = s.onerror = () => { s.remove(); resolve(); };
+    document.head.appendChild(s);
+  });
+}
+async function aisTick(){
+  let st;
+  try { st = await api('/api/status'); }
+  catch { clearInterval(aisPoll); aisPoll = null; showBoat(false); aisBtn.textContent = 'Refresh positions'; aisStatus.textContent = 'The Shipping Dashboard app isn\'t running. Start it from the desktop shortcut.'; return; }
+  const savedAt = st.running ? st.savedAt : st.last && st.last.savedAt;
+  if (savedAt && savedAt !== aisSavedAt){
+    aisSavedAt = savedAt;
+    if (!aisFirstTick){ await reloadTracking(); render(); } // on page load the latest file is already in
+  }
+  aisFirstTick = false;
+  if (st.running){
+    if (!aisPoll) aisPoll = setInterval(aisTick, 3000);
+    const left = Math.max(0, Math.round((st.endsAt - Date.now()) / 1000));
+    const got = (st.vessels || []).filter(v => v.position).map(v => v.name);
+    aisBtn.textContent = `Stop refresh (${Math.floor(left / 60)}:${pad(left % 60)})`;
+    aisStatus.textContent = st.vessels && st.vessels.length ? `Listening… ${got.length} of ${st.vessels.length} ships reported${got.length ? ': ' + got.join(', ') : ''}` : 'Connecting to AISStream…';
+    boatText.textContent = `${aisStatus.textContent} · ${Math.floor(left / 60)}:${pad(left % 60)} left`;
+    showBoat(true);
+  } else {
+    clearInterval(aisPoll); aisPoll = null;
+    boatHidden = false; showBoat(false);
+    aisBtn.textContent = 'Refresh positions';
+    aisStatus.textContent = st.last ? `Last refresh ${fmtStamp(st.last.finishedAt)}: ${st.last.summary}` : '';
+  }
+}
+async function aisClick(){
+  if (!viaHelper) return showDialog(`<h2>Refresh needs the Shipping Dashboard app</h2>
+    <p>Browsers can't connect to AISStream directly. Open the dashboard with the <b>Shipping Dashboard</b> shortcut on your desktop
+    (or <b>Shipping Dashboard.exe</b> in the dashboard folder). The Refresh positions button then works.</p>
+    <p class="muted">Opening it that way gives the dashboard a new address, so the browser keeps its data separately. To move your shipments across, use <b>Export backup</b> here, then <b>Import file</b> there.</p>`);
+  aisBtn.disabled = true;
+  if (!aisPoll) boatHidden = false; // a new refresh brings the boat back
+  try { await api(aisPoll ? '/api/stop' : '/api/refresh', 'POST'); await aisTick(); }
+  catch (e) { aisStatus.textContent = `Couldn't reach the helper (${e.message}).`; }
+  finally { aisBtn.disabled = false; }
+}
+if (viaHelper){ aisTick(); setInterval(() => { if (!aisPoll) aisTick(); }, 30000); } // the check-in also tells the app this window is still open
+
+// ---------- Team view: encrypted snapshot published to GitHub Pages ----------
+// AES-256-GCM with a key derived from the team password (PBKDF2-SHA256). GitHub only ever receives the encrypted package;
+// the app (Publisher in ShippingDashboard.cs) refuses anything else.
+const TEAM_FORMAT = 'shipping-dashboard-team-v1', TEAM_ITER = 600000, TEAM_PW_KEY = 'shippingDashboard.teamPassword';
+let teamPassword = null, teamPkgId = null, teamPublishedAt = null;
+const toB64 = buf => { const b = new Uint8Array(buf); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
+const fromB64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function teamKey(password, salt, iter){
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2', salt, iterations:iter, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, ['encrypt', 'decrypt']);
+}
+async function encryptTeam(snapshot, password){
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, await teamKey(password, salt, TEAM_ITER), new TextEncoder().encode(JSON.stringify(snapshot)));
+  return {format:TEAM_FORMAT, kdf:'PBKDF2-SHA256', iter:TEAM_ITER, salt:toB64(salt), iv:toB64(iv), ct:toB64(ct), publishedAt:snapshot.publishedAt};
+}
+async function decryptTeam(pkg, password){
+  if (!pkg || pkg.format !== TEAM_FORMAT) throw new Error('The published data is in an unknown format.');
+  const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv:fromB64(pkg.iv)}, await teamKey(password, fromB64(pkg.salt), pkg.iter), fromB64(pkg.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+if (TEAM){
+  const gate = document.getElementById('teamGate'), gateError = document.getElementById('gateError');
+  document.querySelector('#empty p').textContent = 'No shipments have been published yet.';
+  const fetchPkg = async () => {
+    const r = await fetch('data.json?t=' + Date.now(), {cache:'no-store'});
+    if (!r.ok) throw new Error(r.status === 404 ? 'nothing has been published yet' : `HTTP ${r.status}`);
+    return r.json();
+  };
+  const openPkg = async (pkg, password) => {
+    const snap = await decryptTeam(pkg, password); // wrong password -> OperationError
+    state = snap.state || emptyState();
+    window.VESSEL_TRACKING = snap.tracking || undefined;
+    teamPublishedAt = snap.publishedAt; teamPkgId = pkg.iv; teamPassword = password;
+    render();
+  };
+  const unlock = async (password, remember, auto) => {
+    gateError.textContent = 'Unlocking…';
+    try {
+      await openPkg(await fetchPkg(), password);
+      try { if (remember) localStorage.setItem(TEAM_PW_KEY, password); } catch {}
+      gate.hidden = true; gateError.textContent = '';
+    } catch (e) {
+      const wrong = e && e.name === 'OperationError';
+      if (wrong && auto) try { localStorage.removeItem(TEAM_PW_KEY); } catch {}
+      gateError.textContent = wrong ? (auto ? 'The team password has changed. Enter the new one.' : 'That password didn\'t work.') : `Couldn't load the shipments: ${e.message}.`;
+      gate.hidden = false;
+    }
+  };
+  document.getElementById('gateForm').addEventListener('submit', e => {
+    e.preventDefault();
+    unlock(document.getElementById('gatePw').value, document.getElementById('gateRemember').checked, false);
+  });
+  let remembered = null;
+  try { remembered = localStorage.getItem(TEAM_PW_KEY); } catch {}
+  if (remembered) unlock(remembered, true, true); else gate.hidden = false;
+  // Pick up new publishes while the page is open (skipped while a pop-out is open).
+  setInterval(async () => {
+    if (!teamPassword || (map && map._popup && map.hasLayer(map._popup))) return;
+    try { const pkg = await fetchPkg(); if (pkg.iv !== teamPkgId) await openPkg(pkg, teamPassword); } catch {}
+  }, 5 * 60 * 1000);
+}
+
+// Publish (your app only): encrypt everything and hand it to the app, which pushes it to GitHub.
+if (viaHelper && !TEAM) document.getElementById('publishBtn').hidden = false;
+function publishDialog(){
+  let saved = '';
+  try { saved = localStorage.getItem(TEAM_PW_KEY + '.publisher') || ''; } catch {}
+  showDialog(`<h2>Publish team view</h2>
+    <p class="muted" style="font-size:13px;margin:4px 0 0">Encrypts all shipments (active and archive) and the latest vessel positions with the team password,
+      then uploads them to your GitHub Pages site. GitHub only receives scrambled data.</p>
+    <input class="pw-input" type="password" id="pubPw" autocomplete="new-password" placeholder="Team password (at least 12 characters)" value="${esc(saved)}">
+    <label class="check-row"><input type="checkbox" id="pubRemember" ${saved ? 'checked' : ''}> Remember on this PC</label>
+    <p class="muted" style="font-size:12.5px;margin:8px 0 0">Share the password with your team separately from the link.</p>
+    <p id="pubResult" aria-live="polite" style="font-size:13px;margin:10px 0 0"></p>
+    <div style="margin-top:12px"><button class="btn primary" data-action="publish-go">Publish</button></div>`);
+}
+async function publishGo(btn){
+  const pw = document.getElementById('pubPw').value, out = document.getElementById('pubResult');
+  if (pw.length < 12){ out.textContent = 'Use at least 12 characters, so the password can\'t be guessed.'; return; }
+  btn.disabled = true;
+  out.textContent = 'Encrypting and uploading… The first time, GitHub asks you to sign in.';
+  try {
+    try { if (document.getElementById('pubRemember').checked) localStorage.setItem(TEAM_PW_KEY + '.publisher', pw); else localStorage.removeItem(TEAM_PW_KEY + '.publisher'); } catch {}
+    const pkg = await encryptTeam({publishedAt:new Date().toISOString(), state, tracking:window.VESSEL_TRACKING || null}, pw);
+    let page = await (await fetch('/', {cache:'no-store'})).text();
+    // Closing script tags are written as <\/script> so the HTML parser doesn't end this inline script early.
+    page = page.replace('<head>', '<head>\n<meta name="robots" content="noindex">\n<script>window.TEAM_VIEW = true;<\/script>')
+               .replace('<script src="tracking.js"><\/script>', '');
+    const res = await (await fetch('/api/publish', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({index:page, data:JSON.stringify(pkg)})})).json();
+    out.innerHTML = esc(res.summary || 'Publish failed.') + (res.ok && res.url
+      ? `<br>Team link: <a href="${esc(res.url)}" target="_blank" rel="noopener">${esc(res.url)}</a>` : '');
+  } catch (e) { out.textContent = `Publish failed: ${e.message}`; }
+  finally { btn.disabled = false; }
+}
+
+// Drag and drop anywhere on the page.
+const drop = document.getElementById('drop');
+let dragDepth = 0;
+const hasFiles = e => !TEAM && Array.from(e.dataTransfer?.types || []).includes('Files');
+addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; drop.hidden = false; });
+addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+addEventListener('dragleave', e => { if (!hasFiles(e)) return; if (--dragDepth <= 0){ dragDepth = 0; drop.hidden = true; } });
+addEventListener('drop', e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth = 0; drop.hidden = true; importFile(e.dataTransfer.files[0]); });
+
+// Re-draw every 10 minutes so in-transit positions keep moving (skipped while a pop-out is open).
+setInterval(() => { if (!map || !map._popup || !map.hasLayer(map._popup)) render(); }, 10 * 60 * 1000);
+
+window.ShippingDashboard = {importFile, render, state: () => state}; // for troubleshooting from the console
+render();
+})();
+</script>
+</body>
+</html>
