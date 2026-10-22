@@ -1018,7 +1018,8 @@ function renderMeta(){
   document.getElementById('meta').innerHTML = [
     last ? `Last import: <b>${esc(last.file)}</b>${last.reportDate ? ' (supplier report ' + fmtDate(last.reportDate) + ')' : ''}, ${fmtStamp(last.at)}` : 'No supplier file imported yet',
     tr ? `Vessel data checked ${fmtStamp(tr.checkedAt)}` : 'No vessel tracking file (tracking.js) found',
-  ].join(' · ');
+    cloudNote(),
+  ].filter(Boolean).join(' · ');
 }
 function renderLegend(list){
   const active = list.filter(d => !d.s.archived);
@@ -1193,7 +1194,7 @@ if (TEAM){
   document.querySelector('#empty p').textContent = 'No shipments have been published yet.';
   const fetchPkg = async () => {
     const r = await fetch('data.json?t=' + Date.now(), {cache:'no-store'});
-    if (!r.ok) throw new Error(r.status === 404 ? 'nothing has been published yet' : `HTTP ${r.status}`);
+    if (!r.ok) throw new Error(r.status === 404 ? 'nothing has been published yet. If it was published in the last couple of minutes, wait a moment and click Unlock again' : `HTTP ${r.status}`);
     return r.json();
   };
   const openPkg = async (pkg, password) => {
@@ -1244,6 +1245,15 @@ function publishDialog(){
     <p id="pubResult" aria-live="polite" style="font-size:13px;margin:10px 0 0"></p>
     <div style="margin-top:12px"><button class="btn primary" data-action="publish-go">Publish</button></div>`);
 }
+// Per vessel, keep whichever snapshot has the more recent AIS position.
+function newerTracking(local, cloud){
+  if (!cloud || !cloud.vessels) return local;
+  const t = s => s ? Date.parse(s) : 0, out = JSON.parse(JSON.stringify(local));
+  for (const [name, v] of Object.entries(cloud.vessels))
+    if (out.vessels && out.vessels[name] && t(v.positionTime) > t(out.vessels[name].positionTime)) out.vessels[name] = v;
+  if (t(cloud.checkedAt) > t(out.checkedAt)) out.checkedAt = cloud.checkedAt;
+  return out;
+}
 async function publishGo(btn){
   const pw = document.getElementById('pubPw').value, out = document.getElementById('pubResult');
   if (pw.length < 12){ out.textContent = 'Use at least 12 characters, so the password can\'t be guessed.'; return; }
@@ -1251,7 +1261,16 @@ async function publishGo(btn){
   out.textContent = 'Encrypting and uploading… The first time, GitHub asks you to sign in.';
   try {
     try { if (document.getElementById('pubRemember').checked) localStorage.setItem(TEAM_PW_KEY + '.publisher', pw); else localStorage.removeItem(TEAM_PW_KEY + '.publisher'); } catch {}
-    const pkg = await encryptTeam({publishedAt:new Date().toISOString(), state, tracking:window.VESSEL_TRACKING || null}, pw);
+    // Keep newer positions the scheduled GitHub refresh has published since your last refresh.
+    let tracking = window.VESSEL_TRACKING || null;
+    try {
+      const st = await api('/api/status');
+      if (st.teamUrl && tracking){
+        const live = await (await fetch(st.teamUrl + 'data.json?t=' + Date.now(), {cache:'no-store'})).json();
+        tracking = newerTracking(tracking, (await decryptTeam(live, pw)).tracking);
+      }
+    } catch {} // first publish, a new password or offline: publish what this PC has
+    const pkg = await encryptTeam({publishedAt:new Date().toISOString(), state, tracking}, pw);
     let page = await (await fetch('/', {cache:'no-store'})).text();
     // Closing script tags are written as <\/script> so the HTML parser doesn't end this inline script early.
     page = page.replace('<head>', '<head>\n<meta name="robots" content="noindex">\n<script>window.TEAM_VIEW = true;<\/script>')
@@ -1263,6 +1282,43 @@ async function publishGo(btn){
   } catch (e) { out.textContent = `Publish failed: ${e.message}`; }
   finally { btn.disabled = false; }
 }
+
+// ---------- Cloud position sync (your app only) ----------
+// Pulls positions found by the 2-hourly GitHub refresh into this dashboard: on open and every 15 minutes, using the team
+// password saved with "Remember on this PC" in the Publish box. Per vessel, only newer positions are taken; saved to tracking.js.
+let cloudSync = {state:'off', at:null, iv:null};
+function cloudNote(){
+  if (!viaHelper || TEAM) return '';
+  if (cloudSync.state === 'ok') return `cloud positions synced ${fmtStamp(cloudSync.at)}`;
+  if (cloudSync.state === 'no-password') return 'cloud sync off: tick "Remember on this PC" when you publish';
+  if (cloudSync.state === 'bad-password') return 'cloud sync: the saved team password is out of date - publish once with the current one';
+  return '';
+}
+async function syncCloud(){
+  if (!viaHelper || TEAM || aisPoll) return; // not while a local refresh is writing positions
+  let pw = null;
+  try { pw = localStorage.getItem(TEAM_PW_KEY + '.publisher'); } catch {}
+  if (!pw){ cloudSync.state = 'no-password'; renderMeta(); return; }
+  try {
+    const st = await api('/api/status');
+    if (!st.teamUrl || !window.VESSEL_TRACKING) return;
+    const pkg = await (await fetch(st.teamUrl + 'data.json?t=' + Date.now(), {cache:'no-store'})).json();
+    if (pkg.iv !== cloudSync.iv){
+      const local = window.VESSEL_TRACKING, merged = newerTracking(local, (await decryptTeam(pkg, pw)).tracking);
+      if (JSON.stringify(merged) !== JSON.stringify(local)){
+        const saved = await (await fetch('/api/tracking', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(merged)})).json();
+        if (!saved.ok) return; // e.g. a refresh started meanwhile - try again next time
+        window.VESSEL_TRACKING = merged;
+        if (!map || !map._popup || !map.hasLayer(map._popup)) render();
+      }
+      cloudSync.iv = pkg.iv;
+    }
+    cloudSync.state = 'ok'; cloudSync.at = Date.now(); renderMeta();
+  } catch (e) {
+    if (e && e.name === 'OperationError'){ cloudSync.state = 'bad-password'; renderMeta(); } // otherwise offline etc.: try again later
+  }
+}
+if (viaHelper && !TEAM){ syncCloud(); setInterval(syncCloud, 15 * 60 * 1000); }
 
 // Drag and drop anywhere on the page.
 const drop = document.getElementById('drop');
@@ -1276,7 +1332,7 @@ addEventListener('drop', e => { if (!hasFiles(e)) return; e.preventDefault(); dr
 // Re-draw every 10 minutes so in-transit positions keep moving (skipped while a pop-out is open).
 setInterval(() => { if (!map || !map._popup || !map.hasLayer(map._popup)) render(); }, 10 * 60 * 1000);
 
-window.ShippingDashboard = {importFile, render, state: () => state}; // for troubleshooting from the console
+window.ShippingDashboard = {importFile, render, syncCloud, state: () => state}; // for troubleshooting from the console
 render();
 })();
 </script>
