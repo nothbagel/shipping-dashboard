@@ -1,0 +1,51 @@
+# Refreshes the ships' AIS positions in the encrypted team data every 2 hours (GitHub may start runs a little late).
+# Needs repository secrets AISSTREAM_API_KEY and TEAM_PASSWORD. Can also be started by hand from the Actions tab.
+name: Refresh AIS positions
+
+on:
+  schedule:
+    - cron: '17 */2 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: refresh-ais
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Listen for positions and update the encrypted data
+        env:
+          AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
+          TEAM_PASSWORD: ${{ secrets.TEAM_PASSWORD }}
+        run: node scripts/refresh-ais.mjs
+
+      - name: Save the update
+        id: commit
+        run: |
+          if git diff --quiet -- data.json; then echo "No change to save."; exit 0; fi
+          git config user.name "Shipping Dashboard"
+          git config user.email "shipping-dashboard@users.noreply.github.com"
+          git add data.json
+          git commit -m "Refresh AIS positions"
+          git push
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Ask GitHub Pages to publish the update
+        if: steps.commit.outputs.pushed == 'true'
+        run: |
+          curl -s -o /dev/null -w "Pages build request: %{http_code}\n" -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pages/builds" || true
