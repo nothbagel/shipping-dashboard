@@ -17,7 +17,8 @@
   color-scheme: light;
   --page:#f9f9f7; --surface:#fcfcfb; --surface-2:#f0efec; --text:#0b0b0b; --text-2:#52514e; --muted:#898781;
   --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10); --shadow:0 6px 24px rgba(0,0,0,.14);
-  --st-unbooked:#898781; --st-pending:#2a78d6; --st-transit:#eb6834; --st-arrived:#1baf7a;
+  --st-unbooked:#898781; --st-allocated:#7b8fb5; --st-pending:#2a78d6; --st-transit:#eb6834; --st-arrived:#0f9fb0;
+  --st-delivery:#8657d6; --st-delivered:#1baf7a;
   --warning:#fab219; --critical:#d03b3b; --accent:#2a78d6; --accent-ink:#fff;
 }
 @media (prefers-color-scheme: dark){
@@ -25,7 +26,7 @@
     color-scheme: dark;
     --page:#0d0d0d; --surface:#1a1a19; --surface-2:#262624; --text:#f0efec; --text-2:#c3c2b7; --muted:#898781;
     --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10); --shadow:0 6px 24px rgba(0,0,0,.55);
-    --st-pending:#3987e5; --st-transit:#d95926; --st-arrived:#199e70; --accent:#3987e5;
+    --st-allocated:#8a9dc2; --st-pending:#3987e5; --st-transit:#d95926; --st-arrived:#15a6b8; --st-delivery:#9469e0; --st-delivered:#199e70; --accent:#3987e5;
   }
 }
 *{box-sizing:border-box}
@@ -94,6 +95,18 @@ button{font:inherit;color:inherit}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
 .btn.primary:hover{filter:brightness(1.08);background:var(--accent)}
 .btn.small{padding:3px 9px;font-size:12.5px;border-radius:6px}
+/* Shipment type filter: header buttons + sidebar dropdown */
+.type-btns{display:flex;gap:6px;flex-wrap:wrap}
+.btn[aria-pressed="true"]{background:color-mix(in srgb,var(--accent) 16%,var(--surface));border-color:var(--accent);font-weight:600}
+.type-sel{font:inherit;font-size:13px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 6px;max-width:100%}
+.sb-filter{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px;color:var(--text-2)}
+.sb-filter .type-sel{flex:1}
+#sidebar.collapsed .sb-filter{display:none}
+/* Rows are always 2 lines (54px) and the list shows at most 5 (5 x 54 + 4 gaps x 8 = 302px); the rest scroll (user request) */
+.type-pick{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:12px;max-height:302px;overflow-y:auto}
+.type-pick label{display:flex;align-items:center;gap:12px;font-size:13px;line-height:18px;border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+.type-pick label > span{flex:1;min-width:0}
+.type-pick .ln{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .banner{background:color-mix(in srgb,var(--warning) 22%,var(--surface));border-bottom:1px solid var(--border);padding:6px 16px;font-size:13px}
 
 /* Map */
@@ -110,13 +123,14 @@ main{position:relative;min-height:0}
 .route{fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;transition:opacity .2s}
 .route.dash{stroke-dasharray:3 6;opacity:.85}
 .route.solid{stroke-width:2.5}
-.route.st-unbooked{stroke:var(--st-unbooked)} .route.st-pending{stroke:var(--st-pending)}
-.route.st-transit{stroke:var(--st-transit)} .route.st-arrived,.route.st-delivered{stroke:var(--st-arrived);opacity:.6}
+.route.st-unbooked{stroke:var(--st-unbooked)} .route.st-allocated{stroke:var(--st-allocated)} .route.st-pending{stroke:var(--st-pending)}
+.route.st-transit{stroke:var(--st-transit)} .route.st-arrived{stroke:var(--st-arrived);opacity:.6}
+.route.st-delivery{stroke:var(--st-delivery);opacity:.6} .route.st-delivered{stroke:var(--st-delivered);opacity:.6}
 .has-sel .route{opacity:.18} .has-sel .route.sel{opacity:1;stroke-width:3.5}
 .port{fill:var(--surface);fill-opacity:1;stroke:var(--text-2);stroke-width:1.5}
 
-.st-unbooked{--c:var(--st-unbooked)} .st-pending{--c:var(--st-pending)} .st-transit{--c:var(--st-transit)}
-.st-arrived,.st-delivered{--c:var(--st-arrived)}
+.st-unbooked{--c:var(--st-unbooked)} .st-allocated{--c:var(--st-allocated)} .st-pending{--c:var(--st-pending)} .st-transit{--c:var(--st-transit)}
+.st-arrived{--c:var(--st-arrived)} .st-delivery{--c:var(--st-delivery)} .st-delivered{--c:var(--st-delivered)} .st-delayed{--c:var(--critical)}
 .mk-wrap{background:none;border:0}
 .mk{width:28px;height:28px;border-radius:50%;background:var(--c);display:grid;place-items:center;
   box-shadow:0 0 0 2px var(--surface),0 1px 5px rgba(0,0,0,.4);cursor:pointer;transition:transform .15s}
@@ -191,6 +205,19 @@ main{position:relative;min-height:0}
 .row-main{flex:1;min-width:0}
 .row-title{font-weight:600;display:flex;align-items:center;gap:6px}
 .row-title .qbox{width:16px;height:16px;font-size:10.5px}
+/* Review flags: new / updated / delayed by an import, until the shipment is opened in the sidebar */
+.nb{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;line-height:16px;padding:0 5px;border-radius:4px;color:#fff;background:var(--accent);margin-left:5px;vertical-align:1px}
+.nb-updated{background:#6250d6}
+.nb-notype{background:var(--muted)}
+.nb-delayed{background:var(--critical)}
+.row.unread{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.row.unread .row-title{font-weight:700}
+.count.alert{background:var(--accent);color:#fff}
+.mk{position:relative}
+.mk.unread::after{content:"";position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--surface)}
+.mk.unread-delay::after{background:var(--critical)}
+.callout.review{border-color:color-mix(in srgb,var(--accent) 50%,transparent);background:color-mix(in srgb,var(--accent) 8%,var(--surface))}
+.lg-note{width:10px;height:10px;border-radius:50%;background:var(--accent);flex:none;box-shadow:0 0 0 2px var(--surface)}
 .row-sub{display:block;color:var(--text-2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row-side{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:12px;color:var(--text-2)}
 .empty-list{padding:28px 18px;color:var(--text-2);text-align:center}
@@ -209,11 +236,8 @@ main{position:relative;min-height:0}
 .callout .bang{flex:none;width:20px;height:20px;border-radius:50%;background:var(--critical);color:#fff;display:grid;place-items:center;font-weight:700;font-size:12px}
 .was{color:var(--muted);text-decoration:line-through;margin-right:5px;font-weight:400}
 .late{color:var(--critical);font-weight:650}
-.chip.delay{background:color-mix(in srgb,var(--critical) 14%,var(--surface-2))}
-.chip.delay:before{background:var(--critical)}
-.mk.delayed{box-shadow:0 0 0 2px var(--surface),0 0 0 4.5px var(--critical),0 1px 5px rgba(0,0,0,.4)}
+.chip.st-delayed{background:color-mix(in srgb,var(--critical) 14%,var(--surface-2))}
 .row.delayed{box-shadow:inset 3px 0 0 var(--critical)}
-.lg-ring{width:11px;height:11px;border-radius:50%;flex:none;background:var(--surface);box-shadow:0 0 0 2px var(--critical)}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px}
 .card{border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin:10px 0}
 .card h3{margin:0 0 6px;font-size:13px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
@@ -240,7 +264,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
 .dlg h3{margin:16px 0 6px;font-size:13.5px}
 .dlg ul{margin:0;padding-left:18px;font-size:13px}
 .dlg li{margin:2px 0}
-.dlg .foot{display:flex;justify-content:flex-end;margin-top:18px}
+.dlg .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 .stat-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .stat{flex:1;min-width:90px;border:1px solid var(--border);border-radius:10px;padding:8px 10px}
 .stat b{display:block;font-size:20px;font-weight:650}
@@ -261,6 +285,12 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
   <button class="btn primary" data-action="import" data-edit title="Import a supplier PROJECT DETAILS file (.xlsx) or a dashboard backup (.json)">Import file</button>
   <button class="btn" data-action="export" data-edit title="Save all shipments, archive and history to a .json backup file">Export backup</button>
   <button class="btn" id="publishBtn" data-action="publish" data-edit hidden title="Encrypt everything with the team password and publish it to the team's GitHub Pages link">Publish team view</button>
+  <div class="type-btns" role="group" aria-label="Shipment type shown">
+    <button class="btn" data-action="type" data-type="project" aria-pressed="false" title="Show only project shipments">Project shipments</button>
+    <button class="btn" data-action="type" data-type="product" aria-pressed="false" title="Show only product shipments">Product shipments</button>
+    <button class="btn" data-action="type" data-type="stock" aria-pressed="false" title="Show only stock shipments">Stock shipments</button>
+    <button class="btn" data-action="type" data-type="all" aria-pressed="true" title="Show every shipment">All shipments</button>
+  </div>
   <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls,.csv,.json" hidden>
 </header>
 <main>
@@ -283,6 +313,7 @@ dialog::backdrop{background:rgba(0,0,0,.35)}
         <button class="tab" data-action="tab" data-tab="archive" role="tab">Archive <span id="cntArchive"></span></button>
       </div>
     </div>
+    <div class="sb-filter"><label for="typeSel">Show</label><select id="typeSel" class="type-sel"></select></div>
     <div class="sb-body" id="sbBody"></div>
   </aside>
   <div id="teamGate" class="gate-overlay" hidden>
@@ -349,6 +380,7 @@ const COLUMNS = [
   ['poRef','PO ref',['PO REF','PO REFERENCE']],
   ['fla','FLA',['FLA']],
   ['project','Project',['PROJECT']],
+  ['shipType','Shipment type',['SHIPMENT TYPE','SHIPMENT TYPES','TYPE','TYPE OF SHIPMENT','SHIPMENT CATEGORY','CATEGORY','SHIPMENT']],
   ['terms','Terms',['TERMS','INCOTERMS']],
   ['crd','CRD (cargo ready)',['CRD'],'date'],
   ['siteExpected','Site expected date',['SITE EXPECTED DATE'],'date'],
@@ -417,11 +449,24 @@ const LANES = {
 
 const STAGES = {
   unbooked:{label:'Awaiting booking'},
+  allocated:{label:'Allocated, awaiting confirmation'},
   pending:{label:'Awaiting departure'},
   transit:{label:'In transit'},
-  arrived:{label:'At destination port'},
+  arrived:{label:'Arrived at port'},
+  delivery:{label:'Delivery to site'},
   delivered:{label:'Delivered'},
+  delayed:{label:'Delayed'},
 };
+// "+7 days, 3 days overdue" for a delayed shipment.
+const delayNote = d => [d.delayDays > 0 && `+${plural(d.delayDays, 'day')}`, d.overdueDays > 0 && `${plural(d.overdueDays, 'day')} overdue`].filter(Boolean).join(', ');
+
+// Shipment types. The supplier file's type column wins; otherwise the type chosen in the dashboard (s.type).
+const TYPES = {project:{label:'Project shipments', one:'Project shipment'}, product:{label:'Product shipments', one:'Product shipment'},
+  stock:{label:'Stock shipments', one:'Stock shipment'}};
+const typeFromText = v => /stock/i.test(v) ? 'stock' : /product/i.test(v) ? 'product' : /project/i.test(v) ? 'project' : null;
+const shipType = s => typeFromText(s.fields.shipType || '') || s.type || null;
+const typeOptions = (sel, none) => `<option value="">${none}</option>` +
+  Object.entries(TYPES).map(([k, t]) => `<option value="${k}"${k === sel ? ' selected' : ''}>${t.label}</option>`).join('');
 
 const ICON = {
   sea:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 14.5h17l-2.3 4.6a1.6 1.6 0 0 1-1.4.9H7.2a1.6 1.6 0 0 1-1.4-.9zM6 13V9.2c0-.6.5-1.2 1.2-1.2H11V4.5h3V8h2.8c.7 0 1.2.6 1.2 1.2V13z"/></svg>',
@@ -560,9 +605,23 @@ const TEAM = !!window.TEAM_VIEW;
 if (TEAM) document.documentElement.classList.add('team-view');
 let storageOK = true;
 let state = load();
-const ui = {tab:'active', detail:null, open:false, selected:null, fitted:false};
+const ui = {tab:'active', detail:null, open:false, selected:null, fitted:false, type:'all'};
+// The Project / Product / Stock filter shared by the header buttons and the sidebar dropdown.
+const inView = s => ui.type === 'all' || shipType(s) === ui.type;
 
-function emptyState(){ return {version:1, shipments:{}, imports:[]}; }
+function emptyState(){ return {version:1, shipments:{}, imports:[], typesSet:true}; }
+// One-off: shipments from before the type column were all project shipments (user, 2026-10-23).
+function migrateTypes(){
+  if (state.typesSet) return;
+  for (const s of Object.values(state.shipments)) if (!shipType(s)) s.type = 'project';
+  state.typesSet = true; save();
+}
+function setType(key, type){
+  const s = state.shipments[key];
+  if (!s || (s.type || '') === type) return;
+  if (type) s.type = type; else delete s.type;
+  s.history.push({at:new Date().toISOString(), type:'type-set', to:type});
+}
 function load(){
   if (TEAM) return emptyState();
   try {
@@ -604,6 +663,26 @@ function dateHtml(d, key, short){
     + `<span class="${c.days > 0 ? 'late' : ''}" title="${c.days > 0 ? '+' : ''}${plural(c.days, 'day')}">${esc(fmt(c.to))}</span>`;
 }
 
+// ---------- Review flags: new / updated / delayed by an import, until the shipment is opened in the sidebar ----------
+const REVIEW_LABEL = {new:'New', updated:'Updated', delayed:'Delayed'};
+function flagForReview(s, kind, at, file, extra){
+  if (s.archived) return;
+  const r = s.review || (s.review = {kinds:[], at, file});
+  if (!r.kinds.includes(kind)) r.kinds.push(kind);
+  r.at = at; r.file = file;
+  for (const [k, v] of Object.entries(extra || {})) r[k] = (r[k] || []).concat(v); // e.g. changes from several imports
+}
+const reviewKinds = s => TEAM || !s.review ? [] : s.review.kinds; // the team view never shows your review flags
+const reviewBadges = s => reviewKinds(s).map(k => `<span class="nb nb-${k}">${REVIEW_LABEL[k]}</span>`).join('');
+// Shown once, when the shipment is opened for review: what was new or changed since the last review.
+function reviewCallout(r){
+  const v = x => esc(isISO(x) ? fmtDate(x) : x || '(blank)');
+  const parts = [];
+  if (r.kinds.includes('new')) parts.push(`New shipment from ${esc(r.newFile || r.file)}.`);
+  if (r.changes && r.changes.length) parts.push(`Changed since your last review: ${r.changes.map(c => `${esc(c.label)} <del>${v(c.from)}</del> → ${v(c.to)}`).join('; ')}.`);
+  return `<div class="callout review"><span>${reviewBadges({review:r})}</span><span>${parts.join(' ')} <span class="muted">Now marked as reviewed.</span></span></div>`;
+}
+
 function derive(s){
   const f = s.fields;
   const mode = /AIR/i.test(f.method || '') ? 'air' : 'sea';
@@ -622,14 +701,16 @@ function derive(s){
   let dep = isoMs(f.etd), arr = isoMs(f.eta), timeSrc = 'schedule';
   if (vessel && vessel.onVoyage && vessel.atd){ dep = Date.parse(vessel.atd); arr = vessel.eta ? Date.parse(vessel.eta) : arr; timeSrc = 'ais'; }
 
-  const t = now();
+  const t = now(), unconfirmed = !/^Y/i.test(String(f.bookingConfirmed || '').trim());
   let stage;
   if (isISO(f.actualAtSite) && isoMs(f.actualAtSite) <= t) stage = 'delivered';
   else if (!vehicle || dep == null) stage = 'unbooked';
-  else if (t < dep) stage = 'pending';
+  else if (t < dep) stage = unconfirmed ? 'allocated' : 'pending';
   else if (arr == null || t < arr) stage = 'transit';
+  else if (isISO(f.cargoAvailable) && isoMs(f.cargoAvailable) <= t) stage = 'delivery';
   else stage = 'arrived';
-  const progress = (dep != null && arr != null && arr > dep) ? clamp((t - dep) / (arr - dep), 0, 1) : (stage === 'arrived' || stage === 'delivered' ? 1 : 0);
+  const atPod = stage === 'arrived' || stage === 'delivery' || stage === 'delivered';
+  const progress = (dep != null && arr != null && arr > dep) ? clamp((t - dep) / (arr - dep), 0, 1) : (atPod ? 1 : 0);
 
   let route = null, routeKind = null;
   if (pol && pod && !pol.unknown && !pod.unknown){
@@ -649,13 +730,17 @@ function derive(s){
       pos = [vessel.lat, lng]; posKind = 'ais'; split = nearestOnRoute(route, pos);
     }
     else if (stage === 'transit'){ const p = pointAt(route, progress); pos = p.pt; posKind = timeSrc === 'ais' ? 'est-ais' : 'est-schedule'; split = p; }
-    else if (stage === 'arrived' || stage === 'delivered'){ pos = route[route.length-1]; posKind = 'pod'; }
+    else if (atPod){ pos = route[route.length-1]; posKind = 'pod'; }
     else { pos = route[0]; posKind = 'pol'; }
   } else if (pol && !pol.unknown){ pos = [pol.lat, pol.lng]; posKind = 'pol'; }
 
   const dates = dateChanges(s), delayDays = Math.max(0, ...Object.values(dates).map(c => c.days));
-  return {s, key:s.key, f, mode, pol, pod, vehicle, vessel, dep, arr, timeSrc, stage, progress, route, routeKind, pos, posKind, split,
-    projectNo:projectNo(s), projectName:f.project || '', unconfirmed: !/^Y/i.test(String(f.bookingConfirmed || '').trim()), dates, delayDays};
+  // Overdue: the site expected date has passed and there is still no actual date at site.
+  const overdueDays = stage !== 'delivered' && isISO(f.siteExpected) ? Math.max(0, Math.floor((t - isoMs(f.siteExpected)) / 86400000)) : 0;
+  // Status = the stage, except "Delayed" takes over while a date was pushed back or the shipment is overdue (until delivered).
+  const status = stage !== 'delivered' && (delayDays > 0 || overdueDays > 0) ? 'delayed' : stage;
+  return {s, key:s.key, f, mode, pol, pod, vehicle, vessel, dep, arr, timeSrc, stage, status, progress, route, routeKind, pos, posKind, split,
+    projectNo:projectNo(s), projectName:f.project || '', type:shipType(s), unconfirmed, dates, delayDays, overdueDays};
 }
 
 // ---------- Import ----------
@@ -706,7 +791,7 @@ function diff(ex, row){
 
 function merge(parsed, file){
   const at = new Date().toISOString();
-  const res = {file, reportDate:parsed.reportDate, total:parsed.rows.length, added:[], updated:[], unchanged:[], missing:[], duplicates:[],
+  const res = {file, reportDate:parsed.reportDate, total:parsed.rows.length, added:[], updated:[], delayed:[], unchanged:[], missing:[], duplicates:[],
     skipped:parsed.skipped, unknownHeaders:parsed.unknownHeaders, missingColumns:parsed.missingColumns};
   const seen = new Set();
   for (const row of parsed.rows){
@@ -715,7 +800,7 @@ function merge(parsed, file){
     const ex = state.shipments[row.key];
     if (!ex){
       state.shipments[row.key] = {key:row.key, fields:row.fields, extra:row.extra, archived:false, firstSeen:at, lastSeen:at,
-        history:[{at, file, reportDate:parsed.reportDate, type:'added'}]};
+        history:[{at, file, reportDate:parsed.reportDate, type:'added'}], review:{kinds:['new'], at, file, newFile:file}};
       res.added.push(row.key);
       continue;
     }
@@ -727,6 +812,15 @@ function merge(parsed, file){
       ex.fields = row.fields; ex.extra = row.extra;
       ex.history.push({at, file, reportDate:parsed.reportDate, type:'updated', changes});
       res.updated.push({key:row.key, archived:ex.archived, changes});
+      if (!ex.archived){
+        // The type column arriving with the type this shipment already has here is not news.
+        const news = changes.filter(c => !(c.label === COL.shipType.label && c.from === '' && typeFromText(c.to) === ex.type));
+        if (news.length) flagForReview(ex, 'updated', at, file, {changes:news});
+        // Newly delayed: this file pushed an ETD, ETA or site expected date later than the previous file had it.
+        const delays = changes.filter(c => DELAY_FIELDS.some(k => COL[k].label === c.label) && isISO(c.from) && isISO(c.to) && c.to > c.from)
+          .map(c => ({label:c.label, from:c.from, to:c.to, days:Math.round((isoMs(c.to) - isoMs(c.from)) / 86400000)}));
+        if (delays.length){ flagForReview(ex, 'delayed', at, file, {delays}); res.delayed.push({key:row.key, delays}); }
+      }
     } else res.unchanged.push(row.key);
   }
   res.missing = Object.values(state.shipments).filter(s => !s.archived && !seen.has(s.key)).map(s => s.key);
@@ -741,7 +835,8 @@ async function importFile(file){
     const parsed = parseWorkbook(await file.arrayBuffer());
     const res = merge(parsed, file.name);
     save(); ui.fitted = false; render();
-    showSummary(res);
+    const untyped = Object.values(state.shipments).filter(s => !s.archived && !shipType(s)).map(s => s.key);
+    if (untyped.length) typePicker(untyped, () => showSummary(res)); else showSummary(res);
   } catch (e) {
     showDialog(`<h2>Couldn't import ${esc(file.name)}</h2><p>${esc(e.message)}</p>`);
   }
@@ -751,7 +846,7 @@ function restoreBackup(data, name){
   if (!data || data.app !== 'shipping-dashboard' || !data.state || !data.state.shipments) throw new Error('This .json file is not a Shipping Dashboard backup.');
   const n = Object.keys(data.state.shipments).length, cur = Object.keys(state.shipments).length;
   if (!confirm(`Replace the current data (${plural(cur,'shipment')}) with the backup from ${fmtStamp(data.exportedAt)} (${plural(n,'shipment')})?`)) return;
-  state = data.state; save(); ui.detail = null; ui.fitted = false; render();
+  state = data.state; migrateTypes(); save(); ui.detail = null; ui.fitted = false; render();
   showDialog(`<h2>Backup restored</h2><p>${esc(name)} — ${plural(n,'shipment')} loaded.</p>`);
 }
 
@@ -766,10 +861,27 @@ function exportBackup(){
 
 // ---------- Dialogs ----------
 const dlg = document.getElementById('dlg');
-function showDialog(html){
-  document.getElementById('dlgBody').innerHTML = html + '<div class="foot"><button class="btn primary" data-action="close-dialog">Close</button></div>';
+function showDialog(html, foot = '<button class="btn primary" data-action="close-dialog">Close</button>'){
+  document.getElementById('dlgBody').innerHTML = html + `<div class="foot">${foot}</div>`;
   if (!dlg.open) dlg.showModal();
 }
+// After an import: shipments with no type get one picked each, then the import summary shows (also if closed with Esc).
+function typePicker(keys, then){
+  ui.afterTypes = then;
+  showDialog(`<h2>Choose a shipment type</h2>
+    <p class="muted" style="margin:0;font-size:13px">${plural(keys.length, 'shipment')} ${keys.length === 1 ? 'has' : 'have'} no shipment type in the supplier file. Pick one for each${
+      keys.length > 5 ? ` (scroll the list to see all ${keys.length})` : ''}. You can change it later in the shipment's details.</p>
+    <div class="type-pick">${keys.map(k => { const d = derive(state.shipments[k]);
+      const l1 = `${esc(k)} · ${esc(d.projectName)} (${esc(d.projectNo)})`, l2 = `${esc(d.f.pol || '?')} → ${esc(d.f.pod || '?')} · ${esc(d.vehicle || 'TBA')}${
+        d.f.shipType ? ` · file says "${esc(d.f.shipType)}"` : ''}`;
+      return `<label><span title="${l1}&#10;${l2}"><span class="ln"><b>${esc(k)}</b> · ${esc(d.projectName)} (${esc(d.projectNo)})</span><span class="ln muted">${l2}</span></span>
+      <select class="type-sel" data-pick="${esc(k)}">${typeOptions('', 'Choose…')}</select></label>`; }).join('')}</div>`,
+    '<button class="btn" data-action="types-later">Later</button><button class="btn primary" data-action="types-save">Save</button>');
+}
+dlg.addEventListener('close', () => {
+  if (dlg.open) return; // a late close event from an earlier window, after the picker opened
+  const then = ui.afterTypes; ui.afterTypes = null; if (then) then();
+});
 function showSummary(r){
   const byKey = k => state.shipments[k] ? derive(state.shipments[k]) : null;
   const line = k => { const d = byKey(k); return d ? `<b>${esc(k)}</b> · ${esc(d.projectName)} (${esc(d.projectNo)}) · ${esc(d.f.pol || '?')} → ${esc(d.f.pod || '?')}` : esc(k); };
@@ -780,6 +892,10 @@ function showSummary(r){
   if (r.added.length) h += `<h3>New shipments</h3><ul>${r.added.map(k => `<li>${line(k)}</li>`).join('')}</ul>`;
   if (r.updated.length) h += `<h3>Updated shipments</h3><ul>${r.updated.map(u => `<li>${line(u.key)}${u.archived ? ' <span class="muted">(archived)</span>' : ''}<ul>${
       u.changes.map(c => `<li>${esc(c.label)}: <del>${val(c.from)}</del> → ${val(c.to)}</li>`).join('')}</ul></li>`).join('')}</ul>`;
+  if (r.delayed.length) h += `<h3 class="late">Delayed by this file</h3><ul>${r.delayed.map(u => `<li>${line(u.key)}<ul>${
+      u.delays.map(c => `<li>${esc(c.label)}: <del>${val(c.from)}</del> → <span class="late">${val(c.to)}</span> (+${plural(c.days, 'day')})</li>`).join('')}</ul></li>`).join('')}</ul>`;
+  if (r.added.length || r.updated.length)
+    h += `<p class="muted" style="font-size:13px;margin:12px 0 0">New, updated and delayed shipments stay highlighted in the sidebar until you open each one there.</p>`;
   if (r.missing.length) h += `<h3>Active but not in this file</h3><p class="muted" style="margin:0 0 4px;font-size:13px">Kept as they were. If they're complete, review and archive them.</p><ul>${r.missing.map(k => `<li>${line(k)}</li>`).join('')}</ul>`;
   const warn = [];
   if (r.duplicates.length) warn.push(`Duplicate rows for ${esc(r.duplicates.join(', '))}. The last row was used.`);
@@ -908,7 +1024,7 @@ function renderMap(list){
       const done = d.route.slice(0, d.split.idx + 1).concat([d.split.pt]);
       const rest = [d.split.pt].concat(d.route.slice(d.split.idx + 1));
       parts.push(L.polyline(onWorld(done), {className:cls + ' solid', interactive:false}), L.polyline(onWorld(rest), {className:cls + ' dash', interactive:false}));
-    } else parts.push(L.polyline(onWorld(d.route), {className:cls + (d.stage === 'arrived' || d.stage === 'delivered' ? ' solid' : ' dash'), interactive:false}));
+    } else parts.push(L.polyline(onWorld(d.route), {className:cls + (d.posKind === 'pod' ? ' solid' : ' dash'), interactive:false}));
     parts.forEach(p => p.addTo(layer));
     routes[d.key] = parts;
     bounds.push(...onWorld(d.route).flat());
@@ -931,9 +1047,11 @@ function renderMap(list){
       const n = group.length, r = n > 1 ? 17 : 0, ang = -Math.PI/2 + i * 2*Math.PI/n;
       const dx = r*Math.cos(ang), dy = r*Math.sin(ang);
       const icon = L.divIcon({className:'mk-wrap', iconSize:[28,28], iconAnchor:[14 - dx, 14 - dy], popupAnchor:[dx, dy - 16],
-        html:`<div class="mk st-${d.stage}${d.posKind && d.posKind.startsWith('est') ? ' est' : ''}${ui.selected === d.key ? ' sel' : ''}${d.delayDays > 0 ? ' delayed' : ''}">${glyph(d)}</div>`});
+        html:`<div class="mk st-${d.status}${d.posKind && d.posKind.startsWith('est') ? ' est' : ''}${ui.selected === d.key ? ' sel' : ''}${
+          reviewKinds(d.s).length ? ' unread' + (reviewKinds(d.s).includes('delayed') ? ' unread-delay' : '') : ''}">${glyph(d)}</div>`});
       const m = L.marker(at, {icon, keyboard:true, title:d.key, riseOnHover:true}).addTo(layer);
-      m.bindTooltip(`<b>${esc(d.key)}</b> · ${esc(d.projectName)} · ${STAGES[d.stage].label}${d.delayDays > 0 ? ` · <span class="late">Delayed +${plural(d.delayDays, 'day')}</span>` : ''}`,
+      m.bindTooltip(`<b>${esc(d.key)}</b> · ${esc(d.projectName)} · ${d.status === 'delayed'
+        ? `<span class="late">Delayed ${delayNote(d)}</span> · ${STAGES[d.stage].label}` : STAGES[d.status].label}`,
         {direction:'top', offset:[dx, dy - 14]});
       m.bindPopup(() => popupHtml(d), {className:'ship-pop', closeButton:false, maxWidth:320, minWidth:290,
         autoPanPaddingTopLeft:[16,16], autoPanPaddingBottomRight:[Math.min(sidebarWidth() + 16, innerWidth * 0.45), 16]});
@@ -990,12 +1108,11 @@ function popupHtml(d){
   else if (v && v.found && !v.onVoyage) note = `Vessel now: ${v.status ? esc(v.status) + ', ' : ''}heading to ${esc(v.destination || '?')}${v.eta ? ', ETA ' + fmtStamp(v.eta) : ''}${fix ? ' · ' + fix : ''}`;
   return `<div class="pop">
     <div class="pop-head">
-      <div class="t"><div class="pop-title">${esc(d.key)}</div><div class="pop-sub">${esc(d.projectName)} · ${esc(d.projectNo)}</div></div>
+      <div class="t"><div class="pop-title">${esc(d.key)}${reviewBadges(d.s)}</div><div class="pop-sub">${esc(d.projectName)} · ${esc(d.projectNo)}</div></div>
       ${d.unconfirmed ? '<span class="qbox" title="Booking not confirmed yet" aria-label="Booking not confirmed yet">?</span>' : ''}
       <button class="x" data-action="close-popup" aria-label="Close">×</button>
     </div>
-    <span class="chip st-${d.stage}">${STAGES[d.stage].label}</span>
-    ${d.delayDays > 0 ? `<span class="chip delay">Delayed +${plural(d.delayDays, 'day')}</span>` : ''}
+    ${d.status === 'delayed' ? `<span class="chip st-delayed">Delayed ${delayNote(d)}</span> ` : ''}<span class="chip st-${d.stage}">${STAGES[d.stage].label}</span>
     ${legHtml(d)}
     <dl class="kv">
       <dt>${d.mode === 'air' ? 'Flight' : 'Vessel'}</dt><dd>${esc(d.vehicle || 'TBA')}${f.carrier && !blank(f.carrier) ? ' · ' + esc(f.carrier) : ''}</dd>
@@ -1027,9 +1144,11 @@ function toggleSidebar(open){
   renderToggle();
 }
 function renderToggle(){
-  const n = Object.values(state.shipments).filter(s => !s.archived).length;
+  const n = Object.values(state.shipments).filter(s => !s.archived && inView(s)).length;
   const t = document.getElementById('sbToggle');
-  t.innerHTML = ui.open ? ICON.close : `${ICON.list}<span>Shipments</span><span class="count">${n}</span>`;
+  const pending = Object.values(state.shipments).filter(s => reviewKinds(s).length && inView(s)).length;
+  t.innerHTML = ui.open ? ICON.close : `${ICON.list}<span>Shipments</span><span class="count">${n}</span>${
+    pending ? `<span class="count alert" title="${plural(pending, 'shipment')} to review">${pending} to review</span>` : ''}`;
   t.title = ui.open ? 'Collapse' : 'Show all shipments';
   t.setAttribute('aria-expanded', String(ui.open));
 }
@@ -1045,11 +1164,13 @@ function groupsOf(list){
 function rowHtml(d){
   const sub = [`${esc(d.f.pol || '?')} → ${esc(d.f.pod || '?')}`, esc(d.vehicle || (d.mode === 'air' ? 'Air · flight TBA' : 'Vessel TBA'))].join(' · ');
   const side = d.s.archived ? `<span>Archived ${esc(fmtShort((d.s.archivedAt || '').slice(0,10)))}</span>` :
-    `<span class="chip st-${d.stage}">${STAGES[d.stage].label}</span><span>ETA ${dateHtml(d, 'eta', true)}</span>`;
-  return `<button class="row${ui.selected === d.key ? ' sel' : ''}${d.delayDays > 0 && !d.s.archived ? ' delayed' : ''}" data-action="detail" data-fla="${esc(d.key)}"
-    ${d.delayDays > 0 ? `title="Delayed +${plural(d.delayDays, 'day')}"` : ''}>
-    <span class="mk st-${d.stage}">${glyph(d)}</span>
-    <span class="row-main"><span class="row-title">${esc(d.key)}${d.unconfirmed && !d.s.archived ? ' <span class="qbox" title="Booking not confirmed yet">?</span>' : ''}</span>
+    `<span class="chip st-${d.status}">${STAGES[d.status].label}</span><span>ETA ${dateHtml(d, 'eta', true)}</span>`;
+  const delayed = d.status === 'delayed' && !d.s.archived;
+  return `<button class="row${ui.selected === d.key ? ' sel' : ''}${delayed ? ' delayed' : ''}${reviewKinds(d.s).length ? ' unread' : ''}" data-action="detail" data-fla="${esc(d.key)}"
+    ${delayed ? `title="Delayed ${delayNote(d)} · ${STAGES[d.stage].label}"` : ''}>
+    <span class="mk st-${d.status}">${glyph(d)}</span>
+    <span class="row-main"><span class="row-title">${esc(d.key)}${reviewBadges(d.s)}${d.type ? '' : '<span class="nb nb-notype" title="Shipment type not set. Choose it in the details.">No type</span>'}${
+      d.unconfirmed && !d.s.archived ? ' <span class="qbox" title="Booking not confirmed yet">?</span>' : ''}</span>
       <span class="row-sub">${sub}</span></span>
     <span class="row-side">${side}</span></button>`;
 }
@@ -1058,11 +1179,13 @@ function renderList(list){
   const archived = ui.tab === 'archive';
   const items = list.filter(d => !!d.s.archived === archived);
   if (!items.length){
-    sbBody.innerHTML = `<div class="empty-list">${archived ? 'No archived shipments yet. Archive a shipment from its detail view once it\'s complete.' : 'No active shipments. Import a supplier file to add some.'}</div>`;
+    sbBody.innerHTML = `<div class="empty-list">${ui.type !== 'all' ? `No ${archived ? 'archived' : 'active'} ${TYPES[ui.type].label.toLowerCase()}.` :
+      archived ? 'No archived shipments yet. Archive a shipment from its detail view once it\'s complete.' : 'No active shipments. Import a supplier file to add some.'}</div>`;
     return;
   }
   sbBody.innerHTML = groupsOf(items).map(g => `<div class="group">
-    <div class="group-head"><span class="name"><b>${esc(g.no)}</b> · ${esc(g.name)} <span class="muted">(${g.items.length})</span></span>
+    <div class="group-head"><span class="name"><b>${esc(g.no)}</b> · ${esc(g.name)} <span class="muted">(${g.items.length})</span>${
+      (n => n ? ` <span class="nb">${n} to review</span>` : '')(g.items.filter(x => reviewKinds(x.s).length).length)}</span>
       <button class="btn small" data-edit data-action="${archived ? 'restore-project' : 'archive-project'}" data-project="${esc(g.no)}"
         title="${archived ? 'Restore' : 'Archive'} every shipment in ${esc(g.no)}">${archived ? 'Restore all' : 'Archive all'}</button></div>
     ${g.items.map(rowHtml).join('')}</div>`).join('');
@@ -1090,7 +1213,11 @@ function renderDetail(d){
       `<p class="muted" style="margin:0 0 6px">This vessel isn't in tracking.js yet. Ask Claude to add it (it needs the vessel's MMSI).</p>${links}`}</section>`;
   }
 
-  const dl = COLUMNS.map(c => `<dt>${esc(c.label)}</dt><dd>${c.type === 'date' ? dateHtml(d, c.key) : esc(f[c.key] || '—')}</dd>`).join('')
+  // Shipment type: from the supplier file, else chosen here (read-only in the team view).
+  const fileType = typeFromText(f.shipType || '');
+  const typeHtml = fileType || TEAM ? (d.type ? TYPES[d.type].label + (fileType ? ' <span class="muted">(supplier file)</span>' : '') : 'Not set')
+    : `<select class="type-sel" data-set-type="${esc(d.key)}">${typeOptions(s.type, 'Not set')}</select>${f.shipType ? ` <span class="muted">file says "${esc(f.shipType)}"</span>` : ''}`;
+  const dl = COLUMNS.map(c => `<dt>${esc(c.label)}</dt><dd>${c.type === 'date' ? dateHtml(d, c.key) : c.key === 'shipType' ? typeHtml : esc(f[c.key] || '—')}</dd>`).join('')
     + Object.entries(s.extra || {}).map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('');
 
   const locNotes = [d.pol, d.pod].filter(p => p && (p.approx || p.unknown)).map(p => p.unknown
@@ -1098,17 +1225,23 @@ function renderDetail(d){
     : `"${esc(p.raw)}" is plotted at ${esc(p.name)} (${esc(p.code)}), which is approximate.`);
 
   const hist = (s.history || []).slice().reverse().map(h => `<li><span class="when">${fmtStamp(h.at)}</span> — ${
-    h.type === 'added' ? `added from ${esc(h.file)}` : h.type === 'archived' ? 'archived' : h.type === 'restored' ? 'restored from archive' : `updated from ${esc(h.file)}`}${
+    h.type === 'added' ? `added from ${esc(h.file)}` : h.type === 'archived' ? 'archived' : h.type === 'restored' ? 'restored from archive' :
+    h.type === 'type-set' ? `shipment type set to ${h.to ? TYPES[h.to].one : 'not set'}` : `updated from ${esc(h.file)}`}${
     h.changes ? `<ul>${h.changes.map(c => `<li>${esc(c.label)}: <del>${esc(isISO(c.from) ? fmtDate(c.from) : c.from || '(blank)')}</del> → ${esc(isISO(c.to) ? fmtDate(c.to) : c.to || '(blank)')}</li>`).join('')}</ul>` : ''}</li>`).join('');
 
   sbBody.innerHTML = `<div class="detail">
     <button class="link" data-action="back">← All shipments</button>
-    <div class="d-head"><span class="mk st-${d.stage}">${glyph(d)}</span>
-      <div style="flex:1;min-width:0"><h2>${esc(d.key)}</h2><div class="sub">${esc(d.projectName)} · ${esc(d.projectNo)}${f.poRef && f.poRef !== d.projectNo ? ' · PO ' + esc(f.poRef) : ''}</div></div>
-      <span class="chip st-${d.stage}">${STAGES[d.stage].label}</span></div>
+    <div class="d-head"><span class="mk st-${d.status}">${glyph(d)}</span>
+      <div style="flex:1;min-width:0"><h2>${esc(d.key)}</h2><div class="sub">${esc(d.projectName)} · ${esc(d.projectNo)}${f.poRef && f.poRef !== d.projectNo ? ' · PO ' + esc(f.poRef) : ''}${
+        d.type ? ' · ' + TYPES[d.type].one : ''}</div></div>
+      <span class="chip st-${d.status}">${STAGES[d.status].label}</span></div>
+    ${ui.reviewing && ui.reviewing.key === d.key ? reviewCallout(ui.reviewing.review) : ''}
     ${d.unconfirmed && !s.archived ? '<div class="callout warn"><span class="qbox">?</span>Booking not confirmed yet.</div>' : ''}
-    ${d.delayDays > 0 ? `<div class="callout delay"><span class="bang">!</span><span>Delayed by ${plural(d.delayDays, 'day')}: ${
-      Object.entries(d.dates).filter(([, c]) => c.days > 0).map(([k, c]) => `${esc(COL[k].label)} ${esc(fmtDate(c.from))} → ${esc(fmtDate(c.to))} (+${plural(c.days, 'day')})`).join('; ')}</span></div>` : ''}
+    ${d.status === 'delayed' ? `<div class="callout delay"><span class="bang">!</span><span>${[
+      d.delayDays > 0 && `Pushed back ${plural(d.delayDays, 'day')}: ${Object.entries(d.dates).filter(([, c]) => c.days > 0)
+        .map(([k, c]) => `${esc(COL[k].label)} ${esc(fmtDate(c.from))} → ${esc(fmtDate(c.to))} (+${plural(c.days, 'day')})`).join('; ')}.`,
+      d.overdueDays > 0 && `Overdue: site expected ${esc(fmtDate(f.siteExpected))} (${plural(d.overdueDays, 'day')} ago) and no actual date at site yet.`,
+      `Stage: ${STAGES[d.stage].label}.`].filter(Boolean).join(' ')}</span></div>` : ''}
     ${s.archived ? `<div class="callout">Archived ${fmtStamp(s.archivedAt)}. Hidden from the map.</div>` : ''}
     ${d.stage === 'delivered' && !s.archived ? '<div class="callout">Delivered to site. Review it and archive when complete.</div>' : ''}
     ${locNotes.map(n => `<div class="callout warn">${n}</div>`).join('')}
@@ -1153,22 +1286,30 @@ function renderMeta(){
 }
 function renderLegend(list){
   const active = list.filter(d => !d.s.archived);
-  const count = st => active.filter(d => st.includes(d.stage)).length;
-  const rows = [['unbooked',['unbooked']],['pending',['pending']],['transit',['transit']],['arrived',['arrived','delivered']]];
-  document.getElementById('legend').innerHTML = rows.map(([st, inc]) =>
-    `<div class="lg-row"><span class="lg-dot st-${st}"></span>${st === 'arrived' ? 'At destination / delivered' : STAGES[st].label}<b>${count(inc)}</b></div>`).join('') +
-    `<div class="lg-row"><span class="lg-ring"></span>Delayed (date pushed back)<b>${active.filter(d => d.delayDays > 0).length}</b></div>
-     <div class="lg-sep"></div>
+  document.getElementById('legend').innerHTML = Object.keys(STAGES).map(st =>
+    `<div class="lg-row"><span class="lg-dot st-${st}"></span>${STAGES[st].label}${st === 'delayed' ? ' (pushed back / overdue)' : ''}<b>${active.filter(d => d.status === st).length}</b></div>`).join('') +
+    `<div class="lg-sep"></div>
      <div class="lg-row"><span class="lg-glyph">${ICON.sea}</span>Sea <span class="lg-glyph" style="margin-left:8px">${ICON.air}</span>Air</div>
      <div class="lg-row"><span class="lg-line"></span>travelled <span class="lg-line dash" style="margin-left:6px"></span>planned</div>
      <div class="lg-row"><span class="lg-dot st-transit" style="outline:1.5px dashed var(--c);outline-offset:2px"></span>estimated position</div>
-     <div class="lg-row"><span class="lg-pin">${PIN_SVG}</span>Interroll site</div>`;
+     <div class="lg-row"><span class="lg-pin">${PIN_SVG}</span>Interroll site</div>
+     ${TEAM ? '' : `<div class="lg-row"><span class="lg-note"></span>To review (red dot = newly delayed)<b>${active.filter(d => reviewKinds(d.s).length).length}</b></div>`}`;
+}
+
+function renderTypeControls(all){
+  const active = all.filter(d => !d.s.archived), n = t => active.filter(d => d.type === t).length;
+  document.querySelectorAll('[data-action="type"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.type === ui.type)));
+  const sel = document.getElementById('typeSel');
+  sel.innerHTML = `<option value="all">All shipments (${active.length})</option>` +
+    Object.entries(TYPES).map(([k, t]) => `<option value="${k}">${t.label} (${n(k)})</option>`).join('');
+  sel.value = ui.type;
 }
 
 function render(){
-  const list = Object.values(state.shipments).map(derive);
-  renderMeta(); renderLegend(list); renderMap(list); renderSidebar(list);
-  document.getElementById('empty').hidden = list.length > 0;
+  const all = Object.values(state.shipments).map(derive);
+  const list = ui.type === 'all' ? all : all.filter(d => d.type === ui.type);
+  renderMeta(); renderTypeControls(all); renderLegend(list); renderMap(list); renderSidebar(list);
+  document.getElementById('empty').hidden = all.length > 0;
   document.getElementById('storageBanner').hidden = storageOK;
 }
 
@@ -1179,6 +1320,7 @@ function setArchived(keys, archived){
     const s = state.shipments[k];
     if (!s || !!s.archived === archived) continue;
     s.archived = archived; s.archivedAt = archived ? at : null;
+    if (archived) delete s.review; // archiving counts as reviewed
     s.history.push({at, type: archived ? 'archived' : 'restored'});
   }
   if (keys.includes(ui.selected)) ui.selected = null;
@@ -1202,6 +1344,11 @@ document.addEventListener('click', e => {
     case 'detail':
       if (map) map.closePopup();
       toggleSidebar(true); ui.detail = key; ui.tab = state.shipments[key]?.archived ? 'archive' : 'active';
+      { // Opening a shipment in the sidebar is the review: show what was new/changed once, then clear its flags.
+        const s = state.shipments[key];
+        ui.reviewing = null;
+        if (s && s.review && !TEAM){ ui.reviewing = {key, review:s.review}; delete s.review; save(); }
+      }
       select(key); render(); sbBody.scrollTop = 0; break;
     case 'back': ui.detail = null; render(); break;
     case 'show-on-map': showOnMap(key); break;
@@ -1209,7 +1356,7 @@ document.addEventListener('click', e => {
     case 'restore': setArchived([key], false); break;
     case 'archive-project': case 'restore-project': {
       const arch = a === 'archive-project', no = el.dataset.project;
-      const keys = Object.values(state.shipments).filter(s => !!s.archived !== arch && projectNo(s) === no).map(s => s.key);
+      const keys = Object.values(state.shipments).filter(s => !!s.archived !== arch && projectNo(s) === no && inView(s)).map(s => s.key);
       if (confirm(`${arch ? 'Archive' : 'Restore'} ${plural(keys.length,'shipment')} in ${no}?`)) setArchived(keys, arch);
       break;
     }
@@ -1219,7 +1366,17 @@ document.addEventListener('click', e => {
     case 'boat-hide': boatHidden = true; showBoat(false); break;
     case 'publish': publishDialog(); break;
     case 'publish-go': publishGo(el); break;
+    case 'type': ui.type = el.dataset.type; render(); break; // one of the four views is always lit
+    case 'types-save':
+      for (const sel of dlg.querySelectorAll('select[data-pick]')) if (sel.value) setType(sel.dataset.pick, sel.value);
+      save(); render(); dlg.close(); break;
+    case 'types-later': dlg.close(); break;
   }
+});
+document.addEventListener('change', e => {
+  const el = e.target;
+  if (el.id === 'typeSel'){ ui.type = el.value; render(); }
+  else if (el.dataset.setType && !TEAM){ setType(el.dataset.setType, el.value); save(); render(); }
 });
 
 // ---------- Live AIS refresh (works when opened through Shipping Dashboard.exe) ----------
@@ -1465,6 +1622,7 @@ addEventListener('drop', e => { if (!hasFiles(e)) return; e.preventDefault(); dr
 setInterval(() => { if (!map || !map._popup || !map.hasLayer(map._popup)) render(); }, 10 * 60 * 1000);
 
 window.ShippingDashboard = {importFile, render, syncCloud, state: () => state, map: () => map}; // for troubleshooting from the console
+if (!TEAM) migrateTypes();
 render();
 })();
 </script>
