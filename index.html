@@ -151,6 +151,9 @@ main{position:relative;min-height:0}
 .lg-pin svg{width:11px;height:14px;display:block}
 .site-pin{background:none;border:0}
 .site-pin svg{width:16px;height:21px;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+.site-co{border-top:1px solid var(--border);padding-top:8px;margin-top:8px;overflow-wrap:anywhere}
+.pop-head + .site-co{border-top:0;padding-top:0;margin-top:0}
+.site-co a{color:var(--accent)}
 
 /* Popup */
 .ship-pop .leaflet-popup-content-wrapper{background:var(--surface);color:var(--text);border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--border);padding:0}
@@ -963,49 +966,105 @@ function onWorld(pts){
 // ---------- Interroll sites (yellow pins) ----------
 // Operational sites - headquarters, production, innovation, sales - from Interroll's Annual Report 2025, financial report
 // note 7.4 "Scope of consolidation". Finance-only holdings (Wilmington DE, Emmeloord) and the dormant Corby entity are left out.
-// Positions are city-level. [city, country, lat, lng, role]
+// Positions are city-level. [city, country, lat, lng, role, companies, note]
+// companies (click pop-out): [company, what it does, address, phone, email]. Addresses, phones and emails are Interroll's own
+// office data (interroll.com contact page office finder + imprint, Oct 2026), except where the note says otherwise.
 const INTERROLL_SITES = [
-  ["Sant'Antonino", 'Switzerland', 46.153, 8.979, 'Global headquarters · production & innovation'],
-  ['Wermelskirchen', 'Germany', 51.139, 7.215, 'Production & innovation (rollers, RollerDrive) · sales'],
-  ['Sinsheim', 'Germany', 49.252, 8.879, 'Production & innovation (automation)'],
-  ['Obrigheim (Mosbach)', 'Germany', 49.352, 9.093, 'Production & innovation (conveyors)'],
-  ['Baal / Hückelhoven', 'Germany', 51.037, 6.275, 'Production & innovation (drum motors)'],
-  ['La Roche-sur-Yon', 'France', 46.670, -1.426, 'Production & innovation (dynamic storage)'],
-  ['Saint-Pol-de-Léon', 'France', 48.685, -3.985, 'Sales'],
-  ['Hvidovre (Copenhagen)', 'Denmark', 55.642, 12.473, 'Production & innovation · sales'],
-  ['Kettering', 'United Kingdom', 52.398, -0.726, 'Sales'],
-  ['Rho / Cornaredo (Milan)', 'Italy', 45.510, 9.030, 'Sales'],
-  ['Cerdanyola del Vallès (Barcelona)', 'Spain', 41.491, 2.141, 'Sales'],
-  ['Linz', 'Austria', 48.306, 14.286, 'Production & innovation (software & electronics)'],
-  ['Břeclav', 'Czech Republic', 48.759, 16.882, 'Sales'],
-  ['Valkenswaard', 'Netherlands', 51.351, 5.459, 'Innovation (Sortteq sorters)'],
-  ['Warsaw', 'Poland', 52.230, 21.012, 'Sales'],
-  ['Istanbul', 'Türkiye', 41.008, 28.978, 'Sales'],
-  ['Johannesburg', 'South Africa', -26.204, 28.047, 'Production · sales'],
-  ['Wilmington, NC', 'USA', 34.226, -77.945, 'Production · sales'],
-  ['Cañon City, CO', 'USA', 38.441, -105.242, 'Production & innovation (belt curves, spirals)'],
-  ['Hiram (Atlanta), GA', 'USA', 33.876, -84.762, 'Production (dynamic storage)'],
-  ['Newmarket, ON', 'Canada', 44.059, -79.461, 'Production · sales'],
-  ['Querétaro', 'Mexico', 20.588, -100.389, 'Sales'],
-  ['Jaguariúna (São Paulo)', 'Brazil', -22.706, -46.986, 'Production · sales'],
-  ['Singapore', 'Singapore', 1.352, 103.820, 'Sales (Asia-Pacific hub)'],
-  ['Suzhou', 'China', 31.299, 120.585, 'Production & innovation'],
-  ['Shanghai', 'China', 31.230, 121.474, 'Sales'],
-  ['Shenzhen', 'China', 22.543, 114.058, 'Production (belt curves, spirals)'],
-  ['Phan Thong (Chonburi)', 'Thailand', 13.465, 101.090, 'Production · sales'],
-  ['Bangalore', 'India', 12.972, 77.594, 'Interroll India (joined 2024)'],
-  ['Tokyo', 'Japan', 35.676, 139.650, 'Sales'],
-  ['Seoul', 'South Korea', 37.566, 126.978, 'Sales'],
-  ['Epping, VIC', 'Australia', -37.649, 145.016, 'Sales (Interroll Australia)'],
+  ["Sant'Antonino", 'Switzerland', 46.153, 8.979, 'Global headquarters · production & innovation', [
+    ['Interroll Holding AG', 'Global headquarters', "Via Gorelle 3, 6592 Sant'Antonino", '+41 91 850 25 25', ''],
+    ['Interroll SA', 'Global Competence Center · Injection Molding, Technopolymers', "Via Industrie 4, P.O. Box 566, 6592 Sant'Antonino", '+41 91 850 25 60', '']]],
+  ['Wermelskirchen', 'Germany', 51.139, 7.215, 'Production & innovation (rollers, RollerDrive) · sales', [
+    ['Interroll Engineering GmbH', 'Production & Innovation Center · Rollers & RollerDrive', 'Höferhof 16, 42929 Wermelskirchen', '+49 2193 23-0', ''],
+    ['Interroll Fördertechnik GmbH', 'Sales office for Germany, Austria, Switzerland and the Netherlands', 'Höferhof 16, 42929 Wermelskirchen', '+49 2193 23-0', 'de.sales@interroll.com']]],
+  ['Sinsheim', 'Germany', 49.252, 8.879, 'Production & innovation (automation)', [
+    ['Interroll Automation GmbH', 'Production & Innovation Center · Conveyors & Sorters (with Mosbach)', 'Dietmar-Hopp-Straße 3, 74889 Sinsheim', '', '']],
+    'Street address from public business listings; Interroll\'s contact pages name the site but not the street.'],
+  ['Obrigheim (Mosbach)', 'Germany', 49.352, 9.093, 'Production & innovation (conveyors)', [
+    ['Interroll Conveyor GmbH', 'Production & Innovation Center · Conveyors & Sorters', 'Paul-Zumbühl-Strasse 10, 74847 Obrigheim', '+49 6262 9277-0', '']]],
+  ['Baal / Hückelhoven', 'Germany', 51.037, 6.275, 'Production & innovation (drum motors)', [
+    ['Interroll Trommelmotoren GmbH', 'Production & Innovation Center · Drum Motors', 'Opelstrasse 3, 41836 Hückelhoven/Baal', '+49 2433 44610', ''],
+    ['Interroll Innovations GmbH', 'Innovation Projects and Development Center', 'Opelstrasse 3, 41836 Hückelhoven/Baal', '', '']]],
+  ['La Roche-sur-Yon', 'France', 46.670, -1.426, 'Production & innovation (dynamic storage)', [
+    ['Interroll S.A. (SIP)', 'Production & Innovation Center · Dynamic Storage', '310 Rue du Clair Bocage, 85006 La Roche-sur-Yon', '+33 2 51 37 12 32', '']]],
+  ['Saint-Pol-de-Léon', 'France', 48.685, -3.985, 'Sales', [
+    ['Interroll SAS', 'Sales France', 'ZI de Kerannou, BP 34, 29250 Saint-Pol-de-Léon', '+33 2 98 24 41 00', 'fr.sales@interroll.com']]],
+  ['Hvidovre (Copenhagen)', 'Denmark', 55.642, 12.473, 'Production & innovation · sales', [
+    ['Interroll Joki A/S', 'Production & Innovation Center · Commercial Belt Drives & Conveyors', 'Hammerholmen 2-6, 2650 Hvidovre', '+45 36 88 33 44', ''],
+    ['Interroll Nordic A/S', 'Sales Nordic', 'Hammerholmen 2-6, 2650 Hvidovre', '+45 36 88 33 33', 'dk.sales@interroll.com']]],
+  ['Kettering', 'United Kingdom', 52.398, -0.726, 'Sales', [
+    ['Interroll Ltd', 'Sales United Kingdom', 'Unit 1A, Orion Way, Kettering NN15 6NL', '+44 1536 312770', 'gb.sales@interroll.com']]],
+  ['Rho / Cornaredo (Milan)', 'Italy', 45.510, 9.030, 'Sales', [
+    ['Interroll Italia S.r.l.', 'Sales Italy', 'Via Italo Calvino 7, 20017 Rho (MI)', '+39 02 9356 0442', 'it.sales@interroll.com']]],
+  ['Cerdanyola del Vallès (Barcelona)', 'Spain', 41.491, 2.141, 'Sales', [
+    ['Interroll España S.A.', 'Sales Spain', 'C/ Artesans 10, 08290 Cerdanyola del Vallès, Barcelona', '+34 93 591 26 79', 'es.sales@interroll.com']]],
+  ['Linz', 'Austria', 48.306, 14.286, 'Production & innovation (software & electronics)', [
+    ['Interroll Software & Electronics GmbH', 'Global Competence Center · Software & Electronics', 'Im Südpark 183, 4030 Linz', '+43 732 257 595-100', '']]],
+  ['Břeclav', 'Czech Republic', 48.759, 16.882, 'Sales', [
+    ['Interroll CZ, s.r.o.', 'Sales Czech Republic', 'Smetanovo nábřeží 12/2158, 690 02 Břeclav', '+420 519 330 210', 'cz.sales@interroll.com']]],
+  ['Valkenswaard', 'Netherlands', 51.351, 5.459, 'Innovation (Sortteq sorters)', [
+    ['Sortteq B.V.', 'Modular chain-belt sorters (acquired by Interroll in 2025)', 'Valkenswaard, Netherlands', '', '']],
+    'No street address is published for Sortteq. Dutch sales are handled by Interroll Fördertechnik, Wermelskirchen (nl.sales@interroll.com).'],
+  ['Warsaw', 'Poland', 52.230, 21.012, 'Sales', [
+    ['Interroll Polska Sp. z o.o.', 'Sales Poland', 'ul. Plochocinska 85, 03-044 Warszawa', '+48 22 741 741 0', 'pl.sales@interroll.com']]],
+  ['Istanbul', 'Türkiye', 41.008, 28.978, 'Sales', [
+    ['Interroll Lojistik Sistemleri Tic. Ltd. Şti.', 'Sales Türkiye', 'Barbaros Mah. Kayacan Sok. No: 10B, 34746 Ataşehir, İstanbul', '+90 216 688 42 80/81', 'tr.sales@interroll.com']]],
+  ['Kempton Park (Johannesburg)', 'South Africa', -26.105, 28.226, 'Production · sales', [
+    ['Interroll SA (Pty) Ltd', 'Production · sales South Africa', '37 Director Road, Spartan Extension 2, Kempton Park, Gauteng 1619', '+27 11 281 99 00', 'za.sales@interroll.com']]],
+  ['Wilmington, NC', 'USA', 34.226, -77.945, 'Production · sales', [
+    ['Interroll Corporation', 'Production plant', '3000 Corporate Drive, Wilmington, NC 28405', '+1 910 799-1100', '']]],
+  ['Cañon City, CO', 'USA', 38.441, -105.242, 'Production & innovation (belt curves, spirals)', [
+    ['Interroll Engineering West', 'Production & Innovation Center · Belt Curves', '1 Forge Rd, Cañon City, CO 81212', '+1 719 275-7471', '']]],
+  ['Hiram (Atlanta), GA', 'USA', 33.876, -84.762, 'Production (dynamic storage)', [
+    ['Interroll Atlanta LLC', 'Production plant · sales office for the USA', '159 Corporate Drive North, Hiram, GA 30141', '+1 770 799-4210', 'us.sales@interroll.com']]],
+  ['Newmarket, ON', 'Canada', 44.059, -79.461, 'Production · sales', [
+    ['Interroll Canada Ltd.', 'Sales Canada', '1201 Gorham Street, Newmarket, Ontario L3Y 8Y2', '+1 905 953 8510', 'ca.sales@interroll.com']]],
+  ['Querétaro', 'Mexico', 20.588, -100.389, 'Sales', [
+    ['Interroll México S. de R.L. de C.V.', 'Sales Mexico', '1er Retorno Universitario #1, Interior 76 B, Terra Business Park, La Pradera, 76269 Santiago de Querétaro', '+52 55 5086 3159', 'mx.sales@interroll.com']]],
+  ['Jaguariúna (São Paulo)', 'Brazil', -22.706, -46.986, 'Production · sales', [
+    ['Interroll Logística Ltda.', 'Production · sales Brazil', 'Av. Vicenzo Granghelli 856, 13916-058 Jaguariúna, São Paulo', '+55 19 3114 6666', 'br.sales@interroll.com']]],
+  ['Singapore', 'Singapore', 1.352, 103.820, 'Sales (Asia-Pacific hub)', [
+    ['Interroll (Asia) Pte. Ltd.', 'Sales Asia-Pacific', '10 Pandan Crescent, #02-04, Singapore 128466', '+65 6266 6322', 'sg.sales@interroll.com']]],
+  ['Suzhou', 'China', 31.299, 120.585, 'Production & innovation', [
+    ['Interroll (Suzhou) Co. Ltd.', 'Production plant', 'No. 16 Huipu Road, Suzhou Industrial Park, 215126 Jiangsu', '+86 512 6256 0383', '']]],
+  ['Shanghai', 'China', 31.230, 121.474, 'Sales', [
+    ['Interroll Holding Management (Shanghai) Co., Ltd', 'Sales China', 'Room 902, Building A, SOHO Zhongshan Plaza, No. 1055 West Zhongshan Road, 200051 Shanghai', '+86 139 1710 9532', 'cn.sales@interroll.com']]],
+  ['Shenzhen', 'China', 22.543, 114.058, 'Production (belt curves, spirals)', [
+    ['Interroll (Shenzhen) Co. Ltd.', 'Production plant', 'Building 4, No. 2 Shouhe Road, Kengzi Subdistrict, Pingshan District, 518122 Shenzhen', '+86 755 3321 8697', '']]],
+  ['Phan Thong (Chonburi)', 'Thailand', 13.465, 101.090, 'Production · sales', [
+    ['Interroll (Thailand) Co., Ltd.', 'Production · sales Thailand', '700/1015 Moo 9, T. Map Pong, A. Phanthong, Amata City Chonburi Industrial Estate, 20160 Chonburi', '+66 33 268 030', 'th.sales@interroll.com']]],
+  ['Bangalore', 'India', 12.972, 77.594, 'Interroll India (joined 2024)', [
+    ['Interroll India Private Limited', 'Production · sales India', 'Plot No. 69 H2/H3, KIADB Industrial Area, Aerospace Park, Jala Hobli, Battara Marenahalli, Yelahanka Tq, 562129 Bengaluru', '+91 77957 08800', 'in.sales@interroll.com']]],
+  ['Shin-Yokohama', 'Japan', 35.508, 139.617, 'Sales', [
+    ['Interroll Japan Co., Ltd.', 'Sales Japan', 'SD13 Building 5F, 2-5-1 Shin-Yokohama, Kohoku-ku, Yokohama, Kanagawa 222-0033', '+81 45 620 5333', 'jp.sales@interroll.com']]],
+  ['Seongnam (Pangyo)', 'South Korea', 37.395, 127.111, 'Sales', [
+    ['Interroll (Korea) Corporation', 'Sales Korea', '11F, 178 Pangyoyeok-ro, Bundang-gu, Seongnam-si, Gyeonggi-do 13524', '', '']]],
+  ['Epping, VIC', 'Australia', -37.649, 145.016, 'Sales (Interroll Australia)', [
+    ['Interroll Australia Pty. Ltd.', 'Sales Australia', '579 Edgars Road, Epping, Victoria 3076', '+61 3 8409 2800', 'au.sales@interroll.com']]],
 ];
+// Click pop-out for a site pin: every Interroll company there, with address, phone and email.
+function sitePopup([city, country, , , , companies, note]){
+  const link = (href, text) => `<a href="${href}">${esc(text)}</a>`;
+  return `<div class="pop">
+    <div class="pop-head"><div class="t"><div class="pop-title">Interroll · ${esc(city)}</div><div class="pop-sub">${esc(country)}</div></div>
+      <button class="x" data-action="close-popup" aria-label="Close">×</button></div>
+    ${companies.map(([company, what, address, phone, email]) => `<div class="site-co"><b>${esc(company)}</b><div class="muted">${esc(what)}</div>
+      <div>${esc(address)}</div>${phone ? `<div>Tel ${link('tel:' + phone.split('/')[0].replace(/[^\d+]/g, ''), phone)}</div>` : ''}${
+      email ? `<div>${link('mailto:' + email, email)}</div>` : ''}</div>`).join('')}
+    <p class="note">${esc(note || 'Source: interroll.com (October 2026).')}</p></div>`;
+}
 const PIN_SVG = '<svg viewBox="0 0 24 32" aria-hidden="true"><path d="M12 1.5C6.5 1.5 2.2 5.8 2.2 11.2c0 7.3 9.8 19.3 9.8 19.3s9.8-12 9.8-19.3C21.8 5.8 17.5 1.5 12 1.5z" fill="#ffcc00" stroke="#1d1d1b" stroke-width="2"/><circle cx="12" cy="11.2" r="3.8" fill="#1d1d1b"/></svg>';
 if (map){
   const pin = L.divIcon({className:'site-pin', html:PIN_SVG, iconSize:[16, 21], iconAnchor:[8, 21], tooltipAnchor:[0, -19]});
   const sites = L.layerGroup().addTo(map);
-  for (const [city, country, lat, lng, role] of INTERROLL_SITES)
+  for (const site of INTERROLL_SITES){
+    const [city, country, lat, lng, role] = site;
     L.marker([lat, wrapLng(lng)], {icon:pin, zIndexOffset:-1000, keyboard:false}) // below the shipment markers
+      // Before the pop-out opens (registered first): keep it clear of the sidebar, like the shipment pop-outs.
+      .on('click', e => { e.target.getPopup().options.autoPanPaddingBottomRight = [Math.min(sidebarWidth() + 16, innerWidth * 0.45), 16]; })
       .bindTooltip(`<b>Interroll</b> · ${esc(city)}, ${esc(country)}<br><span class="muted">${esc(role)}</span>`, {direction:'top'})
+      .bindPopup(() => sitePopup(site), {className:'ship-pop', closeButton:false, maxWidth:320, minWidth:290, autoPanPaddingTopLeft:[16, 16]})
       .addTo(sites);
+  }
 }
 
 function renderMap(list){
